@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package store;
+
+option go_package = "./pb";
+
+message SetOperation {
+  string key = 1;
+  string value = 2;
+}
+
+message SetOperationResult {}
+
+message GetOperation {
+  string key = 1;
+}
+
+message GetOperationResult {
+  string value = 1;
+}
+
+message DelOperation {
+  string key = 1;
+}
+
+message DelOperationResult {}
+
+message Operation {
+  oneof operation {
+    SetOperation set_operation = 1;
+    GetOperation get_operation = 2;
+    DelOperation del_operation = 3;
+  }
+}
+
+message OperationResult {
+  oneof operation_result {
+    SetOperationResult set_operation_result = 1;
+    GetOperationResult get_operation_result = 2;
+    DelOperationResult del_operation_result = 3;
+  }
+}

@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+import "operations.proto";
+
+package store;
+
+option go_package = "./pb";
+
+
+message StoreRequest {
+  Operation operation = 1;
+}
+
+message StoreResponse {
+  optional OperationResult operation_result = 1;
+  optional string error_message = 2;
+}
