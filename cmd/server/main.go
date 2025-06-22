@@ -1,36 +1,39 @@
 package main
 
 import (
-	"context"
-	"fmt"
+	"go.uber.org/zap"
 	store "lukas/simplekv/internal/store"
-	"math/rand"
 	"strconv"
 )
 
 func main() {
-	kvStore := store.NewStore(store.StoreOptions{
-		Ctx:               context.Background(),
-		CommandBufferSize: 1024,
+	logger, _ := zap.NewDevelopment()
+	kvStore := store.NewStore(logger, store.StoreOptions{
+		TaskBufferDepth:  1024,
+		MaxTaskBatchSize: 16,
 	})
 	go kvStore.Run()
 	for i := 0; i < 10000; i++ {
-		var command store.Command = &store.SetOperation{
-			Key:   strconv.Itoa(i),
-			Value: strconv.Itoa(rand.Int()),
+		commands := make([]store.Command, 0, 16)
+		for j := 0; j < 16; j++ {
+			var command store.Command = store.SetCommand{
+				Key:   strconv.Itoa(i),
+				Value: strconv.Itoa(i),
+			}
+			commands = append(commands, command)
 		}
-		kvStore.Submit(command)
+		kvStore.SubmitBatch(commands)
 	}
 
 	for i := 0; i < 10000; i++ {
-		var command store.Command = &store.GetOperation{
+		var command store.Command = store.GetCommand{
 			Key: strconv.Itoa(i),
 		}
 		result, err := kvStore.Execute(command)
 		if err != nil {
-			fmt.Println(err)
+			logger.Error("error executing command", zap.Error(err))
 		} else {
-			fmt.Println(result)
+			logger.Info("command result", zap.Any("result", result))
 		}
 	}
 }

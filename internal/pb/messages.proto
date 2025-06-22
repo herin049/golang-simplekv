@@ -1,17 +1,39 @@
 syntax = "proto3";
 
-import "operations.proto";
+import "commands.proto";
 
 package store;
 
 option go_package = "./pb";
 
-
-message StoreRequest {
-  Operation operation = 1;
+message CommandRequestMessage {
+  uint64 request_id = 1;
+  oneof command {
+    SetCommand set_command = 2;
+    GetCommand get_command = 3;
+    DelCommand del_command = 4;
+  }
 }
 
-message StoreResponse {
-  optional OperationResult operation_result = 1;
-  optional string error_message = 2;
+message ClientMessage {
+  oneof message {
+    CommandRequestMessage command_request = 1;
+  }
+}
+
+message CommandResultMessage {
+  uint64 request_id = 1;
+  oneof command_result {
+    SetCommandResult set_command_result = 2;
+    GetCommandResult get_command_result = 3;
+    DelCommandResult del_command_result = 4;
+  }
+  uint32 error_code = 5;
+  optional string error_message = 6;
+}
+
+message ServerMessage {
+  oneof message {
+    CommandResultMessage command_result = 1;
+  }
 }

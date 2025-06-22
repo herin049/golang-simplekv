@@ -49,24 +49,30 @@ func (f *Future[T]) Get() (T, error) {
 	return f.value, f.err
 }
 
-func (f *Future[T]) GetWithTimeout(timeout time.Duration) (T, error) {
-	f.lock.Lock()
-	defer f.lock.Unlock()
-	timeoutCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	stop := context.AfterFunc(timeoutCtx, func() {
+func (f *Future[T]) GetWithContext(ctx context.Context) (T, error) {
+	stop := context.AfterFunc(ctx, func() {
 		f.lock.Lock()
 		defer f.lock.Unlock()
 		f.cond.Broadcast()
 	})
 	defer stop()
+	f.lock.Lock()
+	defer f.lock.Unlock()
 	for !f.done {
-		f.cond.Wait()
-		if timeoutCtx.Err() != nil {
-			return f.value, timeoutCtx.Err()
+		if ctx.Err() != nil {
+			return f.value, ctx.Err()
 		}
+		f.cond.Wait()
 	}
 	return f.value, f.err
+}
+
+func (f *Future[T]) GetWithTimeout(timeout time.Duration) (T, error) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return f.GetWithContext(timeoutCtx)
 }
 
 func (f *Future[T]) IsComplete() bool {

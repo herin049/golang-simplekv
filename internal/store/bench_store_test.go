@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"runtime"
@@ -25,10 +24,9 @@ func generateRandomValue(length int) string {
 }
 
 func setupStore(bufferSize int) (*Store, func()) {
-	ctx := context.Background()
-	store := NewStore(StoreOptions{
-		Ctx:               ctx,
-		CommandBufferSize: bufferSize,
+	store := NewStore(nil, StoreOptions{
+		TaskBufferDepth:  bufferSize,
+		MaxTaskBatchSize: 1024,
 	})
 
 	// Start the store in a goroutine
@@ -36,7 +34,7 @@ func setupStore(bufferSize int) (*Store, func()) {
 
 	// Return cleanup function
 	cleanup := func() {
-		store.cancel()
+		store.Close()
 	}
 
 	return store, cleanup
@@ -56,9 +54,9 @@ func BenchmarkSet(b *testing.B) {
 	}
 
 	// Pre-create all tasks
-	commands := make([]*SetOperation, b.N)
+	commands := make([]SetCommand, b.N)
 	for i := 0; i < b.N; i++ {
-		commands[i] = &SetOperation{Key: keys[i], Value: values[i]}
+		commands[i] = SetCommand{Key: keys[i], Value: values[i]}
 	}
 
 	b.ResetTimer()
@@ -83,7 +81,7 @@ func BenchmarkGet(b *testing.B) {
 		value := generateRandomValue(100)
 		keys[i] = key
 
-		cmd := &SetOperation{Key: key, Value: value}
+		cmd := SetCommand{Key: key, Value: value}
 		store.Execute(cmd)
 	}
 
@@ -94,9 +92,9 @@ func BenchmarkGet(b *testing.B) {
 	}
 
 	// Pre-create all GET tasks
-	commands := make([]*GetOperation, b.N)
+	commands := make([]GetCommand, b.N)
 	for i := 0; i < b.N; i++ {
-		commands[i] = &GetOperation{Key: keys[keyIndices[i]]}
+		commands[i] = GetCommand{Key: keys[keyIndices[i]]}
 	}
 
 	b.ResetTimer()
@@ -121,14 +119,14 @@ func BenchmarkDel(b *testing.B) {
 		value := generateRandomValue(100)
 		keys[i] = key
 
-		cmd := &SetOperation{Key: key, Value: value}
+		cmd := SetCommand{Key: key, Value: value}
 		store.Execute(cmd)
 	}
 
 	// Pre-create all DELETE tasks
-	commands := make([]*DelOperation, b.N)
+	commands := make([]DelCommand, b.N)
 	for i := 0; i < b.N; i++ {
-		commands[i] = &DelOperation{Key: keys[i]}
+		commands[i] = DelCommand{Key: keys[i]}
 	}
 
 	b.ResetTimer()
@@ -154,7 +152,7 @@ func BenchmarkMixedWorkload(b *testing.B) {
 		value := generateRandomValue(100)
 		keys[i] = key
 
-		cmd := &SetOperation{Key: key, Value: value}
+		cmd := SetCommand{Key: key, Value: value}
 		store.Execute(cmd)
 	}
 
@@ -179,13 +177,13 @@ func BenchmarkMixedWorkload(b *testing.B) {
 		op := operations[i]
 		switch {
 		case op < 0.7: // 70% reads
-			cmd := &GetOperation{Key: keys[readIndices[i]]}
+			cmd := GetCommand{Key: keys[readIndices[i]]}
 			store.Execute(cmd)
 		case op < 0.9: // 20% writes
-			cmd := &SetOperation{Key: writeKeys[i], Value: writeValues[i]}
+			cmd := SetCommand{Key: writeKeys[i], Value: writeValues[i]}
 			store.Execute(cmd)
 		default: // 10% deletes
-			cmd := &DelOperation{Key: keys[deleteIndices[i]]}
+			cmd := DelCommand{Key: keys[deleteIndices[i]]}
 			store.Execute(cmd)
 		}
 	}
@@ -196,23 +194,23 @@ func BenchmarkConcurrentSet(b *testing.B) {
 	store, cleanup := setupStore(100000)
 	defer cleanup()
 
-	numGoroutines := runtime.NumCPU()
+	numGoroutines := runtime.NumCPU() * 100
 	opsPerGoroutine := b.N / numGoroutines
 
 	// Pre-generate all data for all goroutines
 	allKeys := make([][]string, numGoroutines)
 	allValues := make([][]string, numGoroutines)
-	allCommands := make([][]*SetOperation, numGoroutines)
+	allCommands := make([][]SetCommand, numGoroutines)
 
 	for g := 0; g < numGoroutines; g++ {
 		allKeys[g] = make([]string, opsPerGoroutine)
 		allValues[g] = make([]string, opsPerGoroutine)
-		allCommands[g] = make([]*SetOperation, opsPerGoroutine)
+		allCommands[g] = make([]SetCommand, opsPerGoroutine)
 
 		for i := 0; i < opsPerGoroutine; i++ {
 			allKeys[g][i] = fmt.Sprintf("key_%d_%d", g, i)
 			allValues[g][i] = generateRandomValue(100)
-			allCommands[g][i] = &SetOperation{Key: allKeys[g][i], Value: allValues[g][i]}
+			allCommands[g][i] = SetCommand{Key: allKeys[g][i], Value: allValues[g][i]}
 		}
 	}
 
@@ -250,7 +248,7 @@ func BenchmarkConcurrentGet(b *testing.B) {
 		value := generateRandomValue(100)
 		keys[i] = key
 
-		cmd := &SetOperation{Key: key, Value: value}
+		cmd := SetCommand{Key: key, Value: value}
 		store.Execute(cmd)
 	}
 
@@ -258,12 +256,12 @@ func BenchmarkConcurrentGet(b *testing.B) {
 	opsPerGoroutine := b.N / numGoroutines
 
 	// Pre-generate all tasks for all goroutines
-	allCommands := make([][]*GetOperation, numGoroutines)
+	allCommands := make([][]GetCommand, numGoroutines)
 	for g := 0; g < numGoroutines; g++ {
-		allCommands[g] = make([]*GetOperation, opsPerGoroutine)
+		allCommands[g] = make([]GetCommand, opsPerGoroutine)
 		for i := 0; i < opsPerGoroutine; i++ {
 			keyIndex := rand.Intn(numKeys)
-			allCommands[g][i] = &GetOperation{Key: keys[keyIndex]}
+			allCommands[g][i] = GetCommand{Key: keys[keyIndex]}
 		}
 	}
 
@@ -301,7 +299,7 @@ func BenchmarkConcurrentMixed(b *testing.B) {
 		value := generateRandomValue(100)
 		keys[i] = key
 
-		cmd := &SetOperation{Key: key, Value: value}
+		cmd := SetCommand{Key: key, Value: value}
 		store.Execute(cmd)
 	}
 
@@ -311,9 +309,9 @@ func BenchmarkConcurrentMixed(b *testing.B) {
 	// Pre-generate all operations and data for all goroutines
 	type opData struct {
 		opType float32
-		getCmd *GetOperation
-		setCmd *SetOperation
-		delCmd *DelOperation
+		getCmd GetCommand
+		setCmd SetCommand
+		delCmd DelCommand
 	}
 
 	allOps := make([][]opData, numGoroutines)
@@ -326,14 +324,14 @@ func BenchmarkConcurrentMixed(b *testing.B) {
 			switch {
 			case op < 0.7: // 70% reads
 				keyIndex := rand.Intn(len(keys))
-				allOps[g][i].getCmd = &GetOperation{Key: keys[keyIndex]}
+				allOps[g][i].getCmd = GetCommand{Key: keys[keyIndex]}
 			case op < 0.9: // 20% writes
 				key := fmt.Sprintf("key_%d_%d", g, i)
 				value := generateRandomValue(100)
-				allOps[g][i].setCmd = &SetOperation{Key: key, Value: value}
+				allOps[g][i].setCmd = SetCommand{Key: key, Value: value}
 			default: // 10% deletes
 				keyIndex := rand.Intn(len(keys))
-				allOps[g][i].delCmd = &DelOperation{Key: keys[keyIndex]}
+				allOps[g][i].delCmd = DelCommand{Key: keys[keyIndex]}
 			}
 		}
 	}
@@ -382,11 +380,11 @@ func benchmarkWithBufferSize(b *testing.B, bufferSize int) {
 	defer cleanup()
 
 	// Pre-generate all data
-	commands := make([]*SetOperation, b.N)
+	commands := make([]SetCommand, b.N)
 	for i := 0; i < b.N; i++ {
 		key := generateRandomKey(10)
 		value := generateRandomValue(100)
-		commands[i] = &SetOperation{Key: key, Value: value}
+		commands[i] = SetCommand{Key: key, Value: value}
 	}
 
 	b.ResetTimer()
@@ -417,11 +415,11 @@ func benchmarkWithValueSize(b *testing.B, valueSize int) {
 	defer cleanup()
 
 	// Pre-generate all data
-	commands := make([]*SetOperation, b.N)
+	commands := make([]SetCommand, b.N)
 	for i := 0; i < b.N; i++ {
 		key := generateRandomKey(10)
 		value := generateRandomValue(valueSize)
-		commands[i] = &SetOperation{Key: key, Value: value}
+		commands[i] = SetCommand{Key: key, Value: value}
 	}
 
 	b.ResetTimer()
@@ -440,16 +438,16 @@ func BenchmarkAsyncSubmit(b *testing.B) {
 	defer cleanup()
 
 	// Pre-generate all tasks
-	commands := make([]*SetOperation, b.N)
+	commands := make([]SetCommand, b.N)
 	for i := 0; i < b.N; i++ {
 		key := generateRandomKey(10)
 		value := generateRandomValue(100)
-		commands[i] = &SetOperation{Key: key, Value: value}
+		commands[i] = SetCommand{Key: key, Value: value}
 	}
 
 	b.ResetTimer()
 
-	results := make([]*Future[any], b.N)
+	results := make([]*Future[CommandResult], b.N)
 
 	// Submit all tasks
 	start := time.Now()
@@ -478,11 +476,11 @@ func BenchmarkMemoryUsage(b *testing.B) {
 	defer cleanup()
 
 	// Pre-generate all tasks
-	commands := make([]*SetOperation, b.N)
+	commands := make([]SetCommand, b.N)
 	for i := 0; i < b.N; i++ {
 		key := generateRandomKey(10)
 		value := generateRandomValue(100)
-		commands[i] = &SetOperation{Key: key, Value: value}
+		commands[i] = SetCommand{Key: key, Value: value}
 	}
 
 	var m1, m2 runtime.MemStats
@@ -513,13 +511,13 @@ func BenchmarkHighContention(b *testing.B) {
 	opsPerGoroutine := b.N / numGoroutines
 
 	// Pre-generate all tasks for all goroutines
-	allCommands := make([][]*SetOperation, numGoroutines)
+	allCommands := make([][]SetCommand, numGoroutines)
 	for g := 0; g < numGoroutines; g++ {
-		allCommands[g] = make([]*SetOperation, opsPerGoroutine)
+		allCommands[g] = make([]SetCommand, opsPerGoroutine)
 		for i := 0; i < opsPerGoroutine; i++ {
 			key := generateRandomKey(10)
 			value := generateRandomValue(100)
-			allCommands[g][i] = &SetOperation{Key: key, Value: value}
+			allCommands[g][i] = SetCommand{Key: key, Value: value}
 		}
 	}
 
@@ -543,4 +541,499 @@ func BenchmarkHighContention(b *testing.B) {
 	}
 
 	wg.Wait()
+}
+
+// Add these benchmarks to your existing benchmark file
+
+// Batch operation benchmarks
+func BenchmarkBatchSet_10(b *testing.B) {
+	benchmarkBatchSet(b, 10)
+}
+
+func BenchmarkBatchSet_100(b *testing.B) {
+	benchmarkBatchSet(b, 100)
+}
+
+func BenchmarkBatchSet_1000(b *testing.B) {
+	benchmarkBatchSet(b, 1000)
+}
+
+func benchmarkBatchSet(b *testing.B, batchSize int) {
+	store, cleanup := setupStore(10000)
+	defer cleanup()
+
+	// Calculate number of batches needed
+	numBatches := b.N / batchSize
+	if b.N%batchSize != 0 {
+		numBatches++
+	}
+
+	// Pre-generate all batches
+	allBatches := make([][]Command, numBatches)
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		currentBatchSize := batchSize
+		if batchIdx == numBatches-1 && b.N%batchSize != 0 {
+			currentBatchSize = b.N % batchSize
+		}
+
+		batch := make([]Command, currentBatchSize)
+		for i := 0; i < currentBatchSize; i++ {
+			key := generateRandomKey(10)
+			value := generateRandomValue(100)
+			batch[i] = SetCommand{Key: key, Value: value}
+		}
+		allBatches[batchIdx] = batch
+	}
+
+	b.ResetTimer()
+
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		results, errors := store.ExecuteBatch(allBatches[batchIdx])
+		for i, err := range errors {
+			if err != nil {
+				b.Fatalf("Batch operation %d failed: %v", i, err)
+			}
+		}
+		_ = results // Avoid unused variable warning
+	}
+}
+
+func BenchmarkBatchGet_10(b *testing.B) {
+	benchmarkBatchGet(b, 10)
+}
+
+func BenchmarkBatchGet_100(b *testing.B) {
+	benchmarkBatchGet(b, 100)
+}
+
+func BenchmarkBatchGet_1000(b *testing.B) {
+	benchmarkBatchGet(b, 1000)
+}
+
+func benchmarkBatchGet(b *testing.B, batchSize int) {
+	store, cleanup := setupStore(10000)
+	defer cleanup()
+
+	// Pre-populate store with keys
+	numKeys := 10000
+	keys := make([]string, numKeys)
+	for i := 0; i < numKeys; i++ {
+		key := generateRandomKey(10)
+		value := generateRandomValue(100)
+		keys[i] = key
+
+		cmd := SetCommand{Key: key, Value: value}
+		store.Execute(cmd)
+	}
+
+	// Calculate number of batches needed
+	numBatches := b.N / batchSize
+	if b.N%batchSize != 0 {
+		numBatches++
+	}
+
+	// Pre-generate all batches
+	allBatches := make([][]Command, numBatches)
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		currentBatchSize := batchSize
+		if batchIdx == numBatches-1 && b.N%batchSize != 0 {
+			currentBatchSize = b.N % batchSize
+		}
+
+		batch := make([]Command, currentBatchSize)
+		for i := 0; i < currentBatchSize; i++ {
+			keyIndex := rand.Intn(numKeys)
+			batch[i] = GetCommand{Key: keys[keyIndex]}
+		}
+		allBatches[batchIdx] = batch
+	}
+
+	b.ResetTimer()
+
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		results, errors := store.ExecuteBatch(allBatches[batchIdx])
+		for i, err := range errors {
+			if err != nil {
+				b.Fatalf("Batch operation %d failed: %v", i, err)
+			}
+		}
+		_ = results // Avoid unused variable warning
+	}
+}
+
+func BenchmarkBatchMixed_10(b *testing.B) {
+	benchmarkBatchMixed(b, 10)
+}
+
+func BenchmarkBatchMixed_100(b *testing.B) {
+	benchmarkBatchMixed(b, 100)
+}
+
+func BenchmarkBatchMixed_1000(b *testing.B) {
+	benchmarkBatchMixed(b, 1000)
+}
+
+func benchmarkBatchMixed(b *testing.B, batchSize int) {
+	store, cleanup := setupStore(10000)
+	defer cleanup()
+
+	// Pre-populate store
+	baseKeys := 1000
+	keys := make([]string, baseKeys)
+	for i := 0; i < baseKeys; i++ {
+		key := generateRandomKey(10)
+		value := generateRandomValue(100)
+		keys[i] = key
+
+		cmd := SetCommand{Key: key, Value: value}
+		store.Execute(cmd)
+	}
+
+	// Calculate number of batches needed
+	numBatches := b.N / batchSize
+	if b.N%batchSize != 0 {
+		numBatches++
+	}
+
+	// Pre-generate all batches
+	allBatches := make([][]Command, numBatches)
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		currentBatchSize := batchSize
+		if batchIdx == numBatches-1 && b.N%batchSize != 0 {
+			currentBatchSize = b.N % batchSize
+		}
+
+		batch := make([]Command, currentBatchSize)
+		for i := 0; i < currentBatchSize; i++ {
+			op := rand.Float32()
+			switch {
+			case op < 0.7: // 70% reads
+				keyIndex := rand.Intn(len(keys))
+				batch[i] = GetCommand{Key: keys[keyIndex]}
+			case op < 0.9: // 20% writes
+				key := generateRandomKey(10)
+				value := generateRandomValue(100)
+				batch[i] = SetCommand{Key: key, Value: value}
+			default: // 10% deletes
+				keyIndex := rand.Intn(len(keys))
+				batch[i] = DelCommand{Key: keys[keyIndex]}
+			}
+		}
+		allBatches[batchIdx] = batch
+	}
+
+	b.ResetTimer()
+
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		results, errors := store.ExecuteBatch(allBatches[batchIdx])
+		for i, err := range errors {
+			if err != nil && err != KeyNotFoundError {
+				b.Fatalf("Batch operation %d failed: %v", i, err)
+			}
+		}
+		_ = results // Avoid unused variable warning
+	}
+}
+
+// Async batch benchmarks using SubmitBatch
+func BenchmarkAsyncBatchSubmit_10(b *testing.B) {
+	benchmarkAsyncBatchSubmit(b, 10)
+}
+
+func BenchmarkAsyncBatchSubmit_100(b *testing.B) {
+	benchmarkAsyncBatchSubmit(b, 100)
+}
+
+func BenchmarkAsyncBatchSubmit_1000(b *testing.B) {
+	benchmarkAsyncBatchSubmit(b, 1000)
+}
+
+func benchmarkAsyncBatchSubmit(b *testing.B, batchSize int) {
+	store, cleanup := setupStore(10000)
+	defer cleanup()
+
+	// Calculate number of batches needed
+	numBatches := b.N / batchSize
+	if b.N%batchSize != 0 {
+		numBatches++
+	}
+
+	// Pre-generate all batches
+	allBatches := make([][]Command, numBatches)
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		currentBatchSize := batchSize
+		if batchIdx == numBatches-1 && b.N%batchSize != 0 {
+			currentBatchSize = b.N % batchSize
+		}
+
+		batch := make([]Command, currentBatchSize)
+		for i := 0; i < currentBatchSize; i++ {
+			key := generateRandomKey(10)
+			value := generateRandomValue(100)
+			batch[i] = SetCommand{Key: key, Value: value}
+		}
+		allBatches[batchIdx] = batch
+	}
+
+	b.ResetTimer()
+
+	allFutures := make([][]*Future[CommandResult], numBatches)
+
+	// Submit all batches
+	start := time.Now()
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		allFutures[batchIdx] = store.SubmitBatch(allBatches[batchIdx])
+	}
+	submitTime := time.Since(start)
+
+	// Wait for all results
+	start = time.Now()
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		futures := allFutures[batchIdx]
+		for _, future := range futures {
+			_, err := future.Get()
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+	waitTime := time.Since(start)
+
+	b.ReportMetric(float64(submitTime.Nanoseconds())/float64(b.N), "submit-ns/op")
+	b.ReportMetric(float64(waitTime.Nanoseconds())/float64(b.N), "wait-ns/op")
+}
+
+// Concurrent batch benchmarks
+func BenchmarkConcurrentBatch_10(b *testing.B) {
+	benchmarkConcurrentBatch(b, 10)
+}
+
+func BenchmarkConcurrentBatch_100(b *testing.B) {
+	benchmarkConcurrentBatch(b, 100)
+}
+
+func BenchmarkConcurrentBatch_1000(b *testing.B) {
+	benchmarkConcurrentBatch(b, 1000)
+}
+
+func benchmarkConcurrentBatch(b *testing.B, batchSize int) {
+	store, cleanup := setupStore(100000)
+	defer cleanup()
+
+	numGoroutines := runtime.NumCPU()
+	opsPerGoroutine := b.N / numGoroutines
+	batchesPerGoroutine := opsPerGoroutine / batchSize
+	if opsPerGoroutine%batchSize != 0 {
+		batchesPerGoroutine++
+	}
+
+	// Pre-generate all batches for all goroutines
+	allGoroutineBatches := make([][][]Command, numGoroutines)
+	for g := 0; g < numGoroutines; g++ {
+		allGoroutineBatches[g] = make([][]Command, batchesPerGoroutine)
+
+		for batchIdx := 0; batchIdx < batchesPerGoroutine; batchIdx++ {
+			currentBatchSize := batchSize
+			if batchIdx == batchesPerGoroutine-1 && opsPerGoroutine%batchSize != 0 {
+				currentBatchSize = opsPerGoroutine % batchSize
+			}
+
+			batch := make([]Command, currentBatchSize)
+			for i := 0; i < currentBatchSize; i++ {
+				key := fmt.Sprintf("key_%d_%d_%d", g, batchIdx, i)
+				value := generateRandomValue(100)
+				batch[i] = SetCommand{Key: key, Value: value}
+			}
+			allGoroutineBatches[g][batchIdx] = batch
+		}
+	}
+
+	b.ResetTimer()
+
+	var wg sync.WaitGroup
+	for g := 0; g < numGoroutines; g++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			batches := allGoroutineBatches[goroutineID]
+			for _, batch := range batches {
+				results, errors := store.ExecuteBatch(batch)
+				for i, err := range errors {
+					if err != nil {
+						b.Errorf("Goroutine %d batch operation %d failed: %v", goroutineID, i, err)
+						return
+					}
+				}
+				_ = results // Avoid unused variable warning
+			}
+		}(g)
+	}
+
+	wg.Wait()
+}
+
+// Batch vs Individual operation comparison
+func BenchmarkBatchVsIndividual_Set_100(b *testing.B) {
+	b.Run("Individual", func(b *testing.B) {
+		store, cleanup := setupStore(1000)
+		defer cleanup()
+
+		commands := make([]SetCommand, b.N)
+		for i := 0; i < b.N; i++ {
+			key := generateRandomKey(10)
+			value := generateRandomValue(100)
+			commands[i] = SetCommand{Key: key, Value: value}
+		}
+
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			_, err := store.Execute(commands[i])
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("Batch", func(b *testing.B) {
+		store, cleanup := setupStore(10000)
+		defer cleanup()
+
+		batchSize := 100
+		numBatches := b.N / batchSize
+		if b.N%batchSize != 0 {
+			numBatches++
+		}
+
+		allBatches := make([][]Command, numBatches)
+		for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+			currentBatchSize := batchSize
+			if batchIdx == numBatches-1 && b.N%batchSize != 0 {
+				currentBatchSize = b.N % batchSize
+			}
+
+			batch := make([]Command, currentBatchSize)
+			for i := 0; i < currentBatchSize; i++ {
+				key := generateRandomKey(10)
+				value := generateRandomValue(100)
+				batch[i] = SetCommand{Key: key, Value: value}
+			}
+			allBatches[batchIdx] = batch
+		}
+
+		b.ResetTimer()
+
+		for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+			results, errors := store.ExecuteBatch(allBatches[batchIdx])
+			for i, err := range errors {
+				if err != nil {
+					b.Fatalf("Batch operation %d failed: %v", i, err)
+				}
+			}
+			_ = results
+		}
+	})
+}
+
+// Test impact of MaxTaskBatchSize configuration
+func BenchmarkBatchWithMaxTaskBatchSize_10(b *testing.B) {
+	benchmarkBatchWithMaxTaskBatchSize(b, 10)
+}
+
+func BenchmarkBatchWithMaxTaskBatchSize_100(b *testing.B) {
+	benchmarkBatchWithMaxTaskBatchSize(b, 100)
+}
+
+func BenchmarkBatchWithMaxTaskBatchSize_1000(b *testing.B) {
+	benchmarkBatchWithMaxTaskBatchSize(b, 1000)
+}
+
+func benchmarkBatchWithMaxTaskBatchSize(b *testing.B, maxTaskBatchSize int) {
+	store := NewStore(nil, StoreOptions{
+		TaskBufferDepth:  10000,
+		MaxTaskBatchSize: maxTaskBatchSize,
+	})
+
+	go store.Run()
+
+	cleanup := func() {
+		store.Close()
+	}
+	defer cleanup()
+
+	// Create a large batch that will be split by MaxTaskBatchSize
+	batchSize := 1000
+	numBatches := b.N / batchSize
+	if b.N%batchSize != 0 {
+		numBatches++
+	}
+
+	allBatches := make([][]Command, numBatches)
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		currentBatchSize := batchSize
+		if batchIdx == numBatches-1 && b.N%batchSize != 0 {
+			currentBatchSize = b.N % batchSize
+		}
+
+		batch := make([]Command, currentBatchSize)
+		for i := 0; i < currentBatchSize; i++ {
+			key := generateRandomKey(10)
+			value := generateRandomValue(100)
+			batch[i] = SetCommand{Key: key, Value: value}
+		}
+		allBatches[batchIdx] = batch
+	}
+
+	b.ResetTimer()
+
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		results, errors := store.ExecuteBatch(allBatches[batchIdx])
+		for i, err := range errors {
+			if err != nil {
+				b.Fatalf("Batch operation %d failed: %v", i, err)
+			}
+		}
+		_ = results
+	}
+}
+
+// Large batch stress test
+func BenchmarkLargeBatch_10000(b *testing.B) {
+	store, cleanup := setupStore(100000)
+	defer cleanup()
+
+	batchSize := 10000
+	numBatches := b.N / batchSize
+	if b.N%batchSize != 0 {
+		numBatches++
+	}
+
+	allBatches := make([][]Command, numBatches)
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		currentBatchSize := batchSize
+		if batchIdx == numBatches-1 && b.N%batchSize != 0 {
+			currentBatchSize = b.N % batchSize
+		}
+
+		batch := make([]Command, currentBatchSize)
+		for i := 0; i < currentBatchSize; i++ {
+			key := generateRandomKey(10)
+			value := generateRandomValue(100)
+			batch[i] = SetCommand{Key: key, Value: value}
+		}
+		allBatches[batchIdx] = batch
+	}
+
+	b.ResetTimer()
+
+	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+		results, errors := store.ExecuteBatch(allBatches[batchIdx])
+		for i, err := range errors {
+			if err != nil {
+				b.Fatalf("Batch operation %d failed: %v", i, err)
+			}
+		}
+		_ = results
+	}
 }

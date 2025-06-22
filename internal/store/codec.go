@@ -6,84 +6,233 @@ import (
 	"lukas/simplekv/internal/pb"
 )
 
-func ToProtoOperation(operation any) (*pb.Operation, error) {
-	if operation == nil {
-		return nil, fmt.Errorf("operation cannot be nil")
+type ClientMessageCodec interface {
+	Encode(message ClientMessage) ([]byte, error)
+	Decode(data []byte) (ClientMessage, error)
+}
+
+type ClientCodecError struct {
+	Message string
+}
+
+func (err ClientCodecError) Error() string {
+	return err.Message
+}
+
+type ServerMessageCodec interface {
+	Encode(message ServerMessage) ([]byte, error)
+	Decode(data []byte) (ServerMessage, error)
+}
+
+type ServerCodecError struct {
+	Message string
+}
+
+func (err ServerCodecError) Error() string {
+	return err.Message
+}
+
+type PbClientMessageCodec struct {
+}
+
+func NewPbClientMessageCodec() PbClientMessageCodec {
+	return PbClientMessageCodec{}
+}
+
+func (*PbClientMessageCodec) toProtoCommandRequest(commandRequest CommandRequestMessage) (*pb.ClientMessage, error) {
+	pbCmdReqMsg := &pb.CommandRequestMessage{
+		RequestId: commandRequest.RequestId,
 	}
-	switch op := operation.(type) {
-	case *SetOperation:
-		return &pb.Operation{
-			Operation: &pb.Operation_SetOperation{
-				SetOperation: &pb.SetOperation{
-					Key:   op.Key,
-					Value: op.Value,
-				},
+
+	switch cmd := commandRequest.Command.(type) {
+	case SetCommand:
+		pbCmdReqMsg.Command = &pb.CommandRequestMessage_SetCommand{
+			SetCommand: &pb.SetCommand{
+				Key:   cmd.Key,
+				Value: cmd.Value,
 			},
-		}, nil
-	case *GetOperation:
-		return &pb.Operation{
-			Operation: &pb.Operation_GetOperation{
-				GetOperation: &pb.GetOperation{
-					Key: op.Key,
-				},
+		}
+	case GetCommand:
+		pbCmdReqMsg.Command = &pb.CommandRequestMessage_GetCommand{
+			GetCommand: &pb.GetCommand{
+				Key: cmd.Key,
 			},
-		}, nil
-	case *DelOperation:
-		return &pb.Operation{
-			Operation: &pb.Operation_DelOperation{
-				DelOperation: &pb.DelOperation{
-					Key: op.Key,
-				},
+		}
+	case DelCommand:
+		pbCmdReqMsg.Command = &pb.CommandRequestMessage_DelCommand{
+			DelCommand: &pb.DelCommand{
+				Key: cmd.Key,
 			},
-		}, nil
+		}
 	default:
-		return nil, fmt.Errorf("unsupported operation type: %T", op)
+		return nil, ClientCodecError{fmt.Sprintf("unknown client command type: %T", cmd)}
 	}
+
+	return &pb.ClientMessage{
+		Message: &pb.ClientMessage_CommandRequest{
+			CommandRequest: pbCmdReqMsg,
+		},
+	}, nil
 }
 
-func FromProtoOperation(operation *pb.Operation) (any, error) {
-	if operation == nil {
-		return nil, fmt.Errorf("operation cannot be nil")
-	}
-	switch op := operation.Operation.(type) {
-	case *pb.Operation_SetOperation:
-		return &SetOperation{
-			Key:   op.SetOperation.Key,
-			Value: op.SetOperation.Value,
-		}, nil
-	case *pb.Operation_GetOperation:
-		return &GetOperation{
-			Key: op.GetOperation.Key,
-		}, nil
-	case *pb.Operation_DelOperation:
-		return &DelOperation{
-			Key: op.DelOperation.Key,
-		}, nil
+func (c *PbClientMessageCodec) Encode(message ClientMessage) ([]byte, error) {
+	var pbMsg *pb.ClientMessage
+	var err error
+
+	switch req := message.(type) {
+	case CommandRequestMessage:
+		pbMsg, err = c.toProtoCommandRequest(req)
+		if err != nil {
+			return nil, err
+		}
 	default:
-		return nil, fmt.Errorf("unsupported operation type: %T", op)
+		return nil, ClientCodecError{fmt.Sprintf("unknown client request type: %T", req)}
+	}
+
+	return proto.Marshal(pbMsg)
+}
+
+func (*PbClientMessageCodec) fromProtoCommandRequest(pbCmdReqMsg *pb.CommandRequestMessage) (CommandRequestMessage, error) {
+	var cmd Command
+
+	switch pbCmd := pbCmdReqMsg.Command.(type) {
+	case *pb.CommandRequestMessage_SetCommand:
+		cmd = SetCommand{
+			Key:   pbCmd.SetCommand.Key,
+			Value: pbCmd.SetCommand.Value,
+		}
+	case *pb.CommandRequestMessage_GetCommand:
+		cmd = GetCommand{
+			Key: pbCmd.GetCommand.Key,
+		}
+	case *pb.CommandRequestMessage_DelCommand:
+		cmd = DelCommand{
+			Key: pbCmd.DelCommand.Key,
+		}
+	default:
+		return CommandRequestMessage{}, ClientCodecError{fmt.Sprintf("unknown command type: %T", pbCmd)}
+	}
+
+	return CommandRequestMessage{
+		RequestId: pbCmdReqMsg.RequestId,
+		Command:   cmd,
+	}, nil
+}
+
+func (c *PbClientMessageCodec) Decode(data []byte) (ClientMessage, error) {
+	pbMsg := &pb.ClientMessage{}
+	if err := proto.Unmarshal(data, pbMsg); err != nil {
+		return nil, ClientCodecError{Message: "failed to unmarshal client message: " + err.Error()}
+	}
+
+	switch msg := pbMsg.Message.(type) {
+	case *pb.ClientMessage_CommandRequest:
+		return c.fromProtoCommandRequest(msg.CommandRequest)
+	default:
+		return nil, ClientCodecError{fmt.Sprintf("unknown client request type: %T", pbMsg)}
 	}
 }
 
-func EncodeOperation(operation any) ([]byte, error) {
-	pbOperation, err := ToProtoOperation(operation)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode operation: %v", err)
-	}
-	data, err := proto.Marshal(pbOperation)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode operation: %v", err)
-	}
-	return data, nil
+type PbServerMessageCodec struct {
 }
 
-func DecodeOperation(data []byte) (any, error) {
-	pbOperation := &pb.Operation{}
-	if err := proto.Unmarshal(data, pbOperation); err != nil {
-		return nil, fmt.Errorf("failed to decode operation: %v", err)
+func NewPbServerMessageCodec() PbServerMessageCodec {
+	return PbServerMessageCodec{}
+}
+
+func (*PbServerMessageCodec) toProtoCommandResult(commandResult CommandResultMessage) (*pb.ServerMessage, error) {
+	pbCmdResultMsg := &pb.CommandResultMessage{
+		RequestId: commandResult.RequestId,
+		ErrorCode: commandResult.ErrorCode,
 	}
-	operation, err := FromProtoOperation(pbOperation)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode operation: %v", err)
+
+	if commandResult.ErrorMessage != "" {
+		pbCmdResultMsg.ErrorMessage = &commandResult.ErrorMessage
 	}
-	return operation, nil
+
+	switch result := commandResult.CommandResult.(type) {
+	case SetCommandResult:
+		pbCmdResultMsg.CommandResult = &pb.CommandResultMessage_SetCommandResult{
+			SetCommandResult: &pb.SetCommandResult{},
+		}
+	case GetCommandResult:
+		pbCmdResultMsg.CommandResult = &pb.CommandResultMessage_GetCommandResult{
+			GetCommandResult: &pb.GetCommandResult{
+				Value: result.Value,
+			},
+		}
+	case DelCommandResult:
+		pbCmdResultMsg.CommandResult = &pb.CommandResultMessage_DelCommandResult{
+			DelCommandResult: &pb.DelCommandResult{},
+		}
+	}
+
+	return &pb.ServerMessage{
+		Message: &pb.ServerMessage_CommandResult{
+			CommandResult: pbCmdResultMsg,
+		},
+	}, nil
+}
+
+func (c *PbServerMessageCodec) Encode(message ServerMessage) ([]byte, error) {
+	var pbMsg *pb.ServerMessage
+	var err error
+
+	switch result := message.(type) {
+	case CommandResultMessage:
+		pbMsg, err = c.toProtoCommandResult(result)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, ServerCodecError{fmt.Sprintf("unknown server message type: %T", result)}
+	}
+
+	return proto.Marshal(pbMsg)
+}
+
+func (*PbServerMessageCodec) fromProtoCommandResult(pbCmdResultMsg *pb.CommandResultMessage) (CommandResultMessage, error) {
+	errorCode := pbCmdResultMsg.ErrorCode
+	errorMessage := ""
+	if pbCmdResultMsg.ErrorMessage != nil {
+		errorMessage = *pbCmdResultMsg.ErrorMessage
+	}
+
+	var cmdResult CommandResult
+	switch pbResult := pbCmdResultMsg.CommandResult.(type) {
+	case *pb.CommandResultMessage_SetCommandResult:
+		cmdResult = SetCommandResult{}
+	case *pb.CommandResultMessage_GetCommandResult:
+		cmdResult = GetCommandResult{
+			Value: pbResult.GetCommandResult.Value,
+		}
+	case *pb.CommandResultMessage_DelCommandResult:
+		cmdResult = DelCommandResult{}
+	default:
+		cmdResult = nil
+		if errorCode == 0 {
+			return CommandResultMessage{}, ServerCodecError{fmt.Sprintf("unknown command type: %T", pbCmdResultMsg.CommandResult)}
+		}
+	}
+
+	return CommandResultMessage{
+		RequestId:     pbCmdResultMsg.RequestId,
+		CommandResult: cmdResult,
+		ErrorCode:     errorCode,
+		ErrorMessage:  errorMessage,
+	}, nil
+}
+
+func (c *PbServerMessageCodec) Decode(data []byte) (ServerMessage, error) {
+	pbMsg := &pb.ServerMessage{}
+	if err := proto.Unmarshal(data, pbMsg); err != nil {
+		return nil, ServerCodecError{Message: "failed to unmarshal server message: " + err.Error()}
+	}
+
+	switch msg := pbMsg.Message.(type) {
+	case *pb.ServerMessage_CommandResult:
+		return c.fromProtoCommandResult(msg.CommandResult)
+	default:
+		return nil, ServerCodecError{fmt.Sprintf("unknown server response type: %T", pbMsg)}
+	}
 }

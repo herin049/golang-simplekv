@@ -21,27 +21,33 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type StoreRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Operation     *Operation             `protobuf:"bytes,1,opt,name=operation,proto3" json:"operation,omitempty"`
+type CommandRequestMessage struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RequestId uint64                 `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// Types that are valid to be assigned to Command:
+	//
+	//	*CommandRequestMessage_SetCommand
+	//	*CommandRequestMessage_GetCommand
+	//	*CommandRequestMessage_DelCommand
+	Command       isCommandRequestMessage_Command `protobuf_oneof:"command"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *StoreRequest) Reset() {
-	*x = StoreRequest{}
+func (x *CommandRequestMessage) Reset() {
+	*x = CommandRequestMessage{}
 	mi := &file_messages_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StoreRequest) String() string {
+func (x *CommandRequestMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StoreRequest) ProtoMessage() {}
+func (*CommandRequestMessage) ProtoMessage() {}
 
-func (x *StoreRequest) ProtoReflect() protoreflect.Message {
+func (x *CommandRequestMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_messages_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -53,40 +59,98 @@ func (x *StoreRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StoreRequest.ProtoReflect.Descriptor instead.
-func (*StoreRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use CommandRequestMessage.ProtoReflect.Descriptor instead.
+func (*CommandRequestMessage) Descriptor() ([]byte, []int) {
 	return file_messages_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *StoreRequest) GetOperation() *Operation {
+func (x *CommandRequestMessage) GetRequestId() uint64 {
 	if x != nil {
-		return x.Operation
+		return x.RequestId
+	}
+	return 0
+}
+
+func (x *CommandRequestMessage) GetCommand() isCommandRequestMessage_Command {
+	if x != nil {
+		return x.Command
 	}
 	return nil
 }
 
-type StoreResponse struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	OperationResult *OperationResult       `protobuf:"bytes,1,opt,name=operation_result,json=operationResult,proto3,oneof" json:"operation_result,omitempty"`
-	ErrorMessage    *string                `protobuf:"bytes,2,opt,name=error_message,json=errorMessage,proto3,oneof" json:"error_message,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+func (x *CommandRequestMessage) GetSetCommand() *SetCommand {
+	if x != nil {
+		if x, ok := x.Command.(*CommandRequestMessage_SetCommand); ok {
+			return x.SetCommand
+		}
+	}
+	return nil
 }
 
-func (x *StoreResponse) Reset() {
-	*x = StoreResponse{}
+func (x *CommandRequestMessage) GetGetCommand() *GetCommand {
+	if x != nil {
+		if x, ok := x.Command.(*CommandRequestMessage_GetCommand); ok {
+			return x.GetCommand
+		}
+	}
+	return nil
+}
+
+func (x *CommandRequestMessage) GetDelCommand() *DelCommand {
+	if x != nil {
+		if x, ok := x.Command.(*CommandRequestMessage_DelCommand); ok {
+			return x.DelCommand
+		}
+	}
+	return nil
+}
+
+type isCommandRequestMessage_Command interface {
+	isCommandRequestMessage_Command()
+}
+
+type CommandRequestMessage_SetCommand struct {
+	SetCommand *SetCommand `protobuf:"bytes,2,opt,name=set_command,json=setCommand,proto3,oneof"`
+}
+
+type CommandRequestMessage_GetCommand struct {
+	GetCommand *GetCommand `protobuf:"bytes,3,opt,name=get_command,json=getCommand,proto3,oneof"`
+}
+
+type CommandRequestMessage_DelCommand struct {
+	DelCommand *DelCommand `protobuf:"bytes,4,opt,name=del_command,json=delCommand,proto3,oneof"`
+}
+
+func (*CommandRequestMessage_SetCommand) isCommandRequestMessage_Command() {}
+
+func (*CommandRequestMessage_GetCommand) isCommandRequestMessage_Command() {}
+
+func (*CommandRequestMessage_DelCommand) isCommandRequestMessage_Command() {}
+
+type ClientMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Message:
+	//
+	//	*ClientMessage_CommandRequest
+	Message       isClientMessage_Message `protobuf_oneof:"message"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClientMessage) Reset() {
+	*x = ClientMessage{}
 	mi := &file_messages_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *StoreResponse) String() string {
+func (x *ClientMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*StoreResponse) ProtoMessage() {}
+func (*ClientMessage) ProtoMessage() {}
 
-func (x *StoreResponse) ProtoReflect() protoreflect.Message {
+func (x *ClientMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_messages_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -98,37 +162,257 @@ func (x *StoreResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use StoreResponse.ProtoReflect.Descriptor instead.
-func (*StoreResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use ClientMessage.ProtoReflect.Descriptor instead.
+func (*ClientMessage) Descriptor() ([]byte, []int) {
 	return file_messages_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *StoreResponse) GetOperationResult() *OperationResult {
+func (x *ClientMessage) GetMessage() isClientMessage_Message {
 	if x != nil {
-		return x.OperationResult
+		return x.Message
 	}
 	return nil
 }
 
-func (x *StoreResponse) GetErrorMessage() string {
+func (x *ClientMessage) GetCommandRequest() *CommandRequestMessage {
+	if x != nil {
+		if x, ok := x.Message.(*ClientMessage_CommandRequest); ok {
+			return x.CommandRequest
+		}
+	}
+	return nil
+}
+
+type isClientMessage_Message interface {
+	isClientMessage_Message()
+}
+
+type ClientMessage_CommandRequest struct {
+	CommandRequest *CommandRequestMessage `protobuf:"bytes,1,opt,name=command_request,json=commandRequest,proto3,oneof"`
+}
+
+func (*ClientMessage_CommandRequest) isClientMessage_Message() {}
+
+type CommandResultMessage struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RequestId uint64                 `protobuf:"varint,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// Types that are valid to be assigned to CommandResult:
+	//
+	//	*CommandResultMessage_SetCommandResult
+	//	*CommandResultMessage_GetCommandResult
+	//	*CommandResultMessage_DelCommandResult
+	CommandResult isCommandResultMessage_CommandResult `protobuf_oneof:"command_result"`
+	ErrorCode     uint32                               `protobuf:"varint,5,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	ErrorMessage  *string                              `protobuf:"bytes,6,opt,name=error_message,json=errorMessage,proto3,oneof" json:"error_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CommandResultMessage) Reset() {
+	*x = CommandResultMessage{}
+	mi := &file_messages_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommandResultMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommandResultMessage) ProtoMessage() {}
+
+func (x *CommandResultMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CommandResultMessage.ProtoReflect.Descriptor instead.
+func (*CommandResultMessage) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CommandResultMessage) GetRequestId() uint64 {
+	if x != nil {
+		return x.RequestId
+	}
+	return 0
+}
+
+func (x *CommandResultMessage) GetCommandResult() isCommandResultMessage_CommandResult {
+	if x != nil {
+		return x.CommandResult
+	}
+	return nil
+}
+
+func (x *CommandResultMessage) GetSetCommandResult() *SetCommandResult {
+	if x != nil {
+		if x, ok := x.CommandResult.(*CommandResultMessage_SetCommandResult); ok {
+			return x.SetCommandResult
+		}
+	}
+	return nil
+}
+
+func (x *CommandResultMessage) GetGetCommandResult() *GetCommandResult {
+	if x != nil {
+		if x, ok := x.CommandResult.(*CommandResultMessage_GetCommandResult); ok {
+			return x.GetCommandResult
+		}
+	}
+	return nil
+}
+
+func (x *CommandResultMessage) GetDelCommandResult() *DelCommandResult {
+	if x != nil {
+		if x, ok := x.CommandResult.(*CommandResultMessage_DelCommandResult); ok {
+			return x.DelCommandResult
+		}
+	}
+	return nil
+}
+
+func (x *CommandResultMessage) GetErrorCode() uint32 {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return 0
+}
+
+func (x *CommandResultMessage) GetErrorMessage() string {
 	if x != nil && x.ErrorMessage != nil {
 		return *x.ErrorMessage
 	}
 	return ""
 }
 
+type isCommandResultMessage_CommandResult interface {
+	isCommandResultMessage_CommandResult()
+}
+
+type CommandResultMessage_SetCommandResult struct {
+	SetCommandResult *SetCommandResult `protobuf:"bytes,2,opt,name=set_command_result,json=setCommandResult,proto3,oneof"`
+}
+
+type CommandResultMessage_GetCommandResult struct {
+	GetCommandResult *GetCommandResult `protobuf:"bytes,3,opt,name=get_command_result,json=getCommandResult,proto3,oneof"`
+}
+
+type CommandResultMessage_DelCommandResult struct {
+	DelCommandResult *DelCommandResult `protobuf:"bytes,4,opt,name=del_command_result,json=delCommandResult,proto3,oneof"`
+}
+
+func (*CommandResultMessage_SetCommandResult) isCommandResultMessage_CommandResult() {}
+
+func (*CommandResultMessage_GetCommandResult) isCommandResultMessage_CommandResult() {}
+
+func (*CommandResultMessage_DelCommandResult) isCommandResultMessage_CommandResult() {}
+
+type ServerMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Message:
+	//
+	//	*ServerMessage_CommandResult
+	Message       isServerMessage_Message `protobuf_oneof:"message"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServerMessage) Reset() {
+	*x = ServerMessage{}
+	mi := &file_messages_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServerMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServerMessage) ProtoMessage() {}
+
+func (x *ServerMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_messages_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServerMessage.ProtoReflect.Descriptor instead.
+func (*ServerMessage) Descriptor() ([]byte, []int) {
+	return file_messages_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ServerMessage) GetMessage() isServerMessage_Message {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetCommandResult() *CommandResultMessage {
+	if x != nil {
+		if x, ok := x.Message.(*ServerMessage_CommandResult); ok {
+			return x.CommandResult
+		}
+	}
+	return nil
+}
+
+type isServerMessage_Message interface {
+	isServerMessage_Message()
+}
+
+type ServerMessage_CommandResult struct {
+	CommandResult *CommandResultMessage `protobuf:"bytes,1,opt,name=command_result,json=commandResult,proto3,oneof"`
+}
+
+func (*ServerMessage_CommandResult) isServerMessage_Message() {}
+
 var File_messages_proto protoreflect.FileDescriptor
 
 const file_messages_proto_rawDesc = "" +
 	"\n" +
-	"\x0emessages.proto\x12\x05store\x1a\x10operations.proto\">\n" +
-	"\fStoreRequest\x12.\n" +
-	"\toperation\x18\x01 \x01(\v2\x10.store.OperationR\toperation\"\xa8\x01\n" +
-	"\rStoreResponse\x12F\n" +
-	"\x10operation_result\x18\x01 \x01(\v2\x16.store.OperationResultH\x00R\x0foperationResult\x88\x01\x01\x12(\n" +
-	"\rerror_message\x18\x02 \x01(\tH\x01R\ferrorMessage\x88\x01\x01B\x13\n" +
-	"\x11_operation_resultB\x10\n" +
-	"\x0e_error_messageB\x06Z\x04./pbb\x06proto3"
+	"\x0emessages.proto\x12\x05store\x1a\x0ecommands.proto\"\xe3\x01\n" +
+	"\x15CommandRequestMessage\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\x04R\trequestId\x124\n" +
+	"\vset_command\x18\x02 \x01(\v2\x11.store.SetCommandH\x00R\n" +
+	"setCommand\x124\n" +
+	"\vget_command\x18\x03 \x01(\v2\x11.store.GetCommandH\x00R\n" +
+	"getCommand\x124\n" +
+	"\vdel_command\x18\x04 \x01(\v2\x11.store.DelCommandH\x00R\n" +
+	"delCommandB\t\n" +
+	"\acommand\"c\n" +
+	"\rClientMessage\x12G\n" +
+	"\x0fcommand_request\x18\x01 \x01(\v2\x1c.store.CommandRequestMessageH\x00R\x0ecommandRequestB\t\n" +
+	"\amessage\"\xfd\x02\n" +
+	"\x14CommandResultMessage\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\x04R\trequestId\x12G\n" +
+	"\x12set_command_result\x18\x02 \x01(\v2\x17.store.SetCommandResultH\x00R\x10setCommandResult\x12G\n" +
+	"\x12get_command_result\x18\x03 \x01(\v2\x17.store.GetCommandResultH\x00R\x10getCommandResult\x12G\n" +
+	"\x12del_command_result\x18\x04 \x01(\v2\x17.store.DelCommandResultH\x00R\x10delCommandResult\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x05 \x01(\rR\terrorCode\x12(\n" +
+	"\rerror_message\x18\x06 \x01(\tH\x01R\ferrorMessage\x88\x01\x01B\x10\n" +
+	"\x0ecommand_resultB\x10\n" +
+	"\x0e_error_message\"`\n" +
+	"\rServerMessage\x12D\n" +
+	"\x0ecommand_result\x18\x01 \x01(\v2\x1b.store.CommandResultMessageH\x00R\rcommandResultB\t\n" +
+	"\amessageB\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_messages_proto_rawDescOnce sync.Once
@@ -142,21 +426,33 @@ func file_messages_proto_rawDescGZIP() []byte {
 	return file_messages_proto_rawDescData
 }
 
-var file_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_messages_proto_goTypes = []any{
-	(*StoreRequest)(nil),    // 0: store.StoreRequest
-	(*StoreResponse)(nil),   // 1: store.StoreResponse
-	(*Operation)(nil),       // 2: store.Operation
-	(*OperationResult)(nil), // 3: store.OperationResult
+	(*CommandRequestMessage)(nil), // 0: store.CommandRequestMessage
+	(*ClientMessage)(nil),         // 1: store.ClientMessage
+	(*CommandResultMessage)(nil),  // 2: store.CommandResultMessage
+	(*ServerMessage)(nil),         // 3: store.ServerMessage
+	(*SetCommand)(nil),            // 4: store.SetCommand
+	(*GetCommand)(nil),            // 5: store.GetCommand
+	(*DelCommand)(nil),            // 6: store.DelCommand
+	(*SetCommandResult)(nil),      // 7: store.SetCommandResult
+	(*GetCommandResult)(nil),      // 8: store.GetCommandResult
+	(*DelCommandResult)(nil),      // 9: store.DelCommandResult
 }
 var file_messages_proto_depIdxs = []int32{
-	2, // 0: store.StoreRequest.operation:type_name -> store.Operation
-	3, // 1: store.StoreResponse.operation_result:type_name -> store.OperationResult
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	4, // 0: store.CommandRequestMessage.set_command:type_name -> store.SetCommand
+	5, // 1: store.CommandRequestMessage.get_command:type_name -> store.GetCommand
+	6, // 2: store.CommandRequestMessage.del_command:type_name -> store.DelCommand
+	0, // 3: store.ClientMessage.command_request:type_name -> store.CommandRequestMessage
+	7, // 4: store.CommandResultMessage.set_command_result:type_name -> store.SetCommandResult
+	8, // 5: store.CommandResultMessage.get_command_result:type_name -> store.GetCommandResult
+	9, // 6: store.CommandResultMessage.del_command_result:type_name -> store.DelCommandResult
+	2, // 7: store.ServerMessage.command_result:type_name -> store.CommandResultMessage
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_messages_proto_init() }
@@ -164,15 +460,30 @@ func file_messages_proto_init() {
 	if File_messages_proto != nil {
 		return
 	}
-	file_operations_proto_init()
-	file_messages_proto_msgTypes[1].OneofWrappers = []any{}
+	file_commands_proto_init()
+	file_messages_proto_msgTypes[0].OneofWrappers = []any{
+		(*CommandRequestMessage_SetCommand)(nil),
+		(*CommandRequestMessage_GetCommand)(nil),
+		(*CommandRequestMessage_DelCommand)(nil),
+	}
+	file_messages_proto_msgTypes[1].OneofWrappers = []any{
+		(*ClientMessage_CommandRequest)(nil),
+	}
+	file_messages_proto_msgTypes[2].OneofWrappers = []any{
+		(*CommandResultMessage_SetCommandResult)(nil),
+		(*CommandResultMessage_GetCommandResult)(nil),
+		(*CommandResultMessage_DelCommandResult)(nil),
+	}
+	file_messages_proto_msgTypes[3].OneofWrappers = []any{
+		(*ServerMessage_CommandResult)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_messages_proto_rawDesc), len(file_messages_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
