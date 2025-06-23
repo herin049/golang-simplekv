@@ -1,6 +1,9 @@
 package store
 
-import "go.uber.org/zap"
+import (
+	"context"
+	"go.uber.org/zap"
+)
 
 var KeyNotFoundError = StoreError{1, "key not found"}
 var UnknownCommandError = StoreError{2, "unknown command"}
@@ -31,6 +34,7 @@ type Store struct {
 	tasks            chan StoreTaskBatch
 	items            map[string]string
 	maxTaskBatchSize int
+	done             chan struct{}
 }
 
 func NewStore(logger *zap.Logger, options StoreOptions) *Store {
@@ -42,6 +46,7 @@ func NewStore(logger *zap.Logger, options StoreOptions) *Store {
 		tasks:            make(chan StoreTaskBatch, options.TaskBufferDepth),
 		items:            make(map[string]string),
 		maxTaskBatchSize: options.MaxTaskBatchSize,
+		done:             make(chan struct{}),
 	}
 }
 
@@ -114,7 +119,7 @@ func (s *Store) ExecuteBatch(commands []Command) ([]CommandResult, []error) {
 }
 
 func (s *Store) Run() {
-	s.logger.Info("Running store")
+	s.logger.Info("running store")
 	for taskBatch := range s.tasks {
 		for _, task := range taskBatch {
 			result, err := s.executeCommand(task.command)
@@ -125,9 +130,20 @@ func (s *Store) Run() {
 			}
 		}
 	}
-	s.logger.Info("Store finished processing commands")
+	s.logger.Info("store finished processing commands")
+	close(s.done)
 }
 
-func (s *Store) Close() {
+func (s *Store) Stop() {
 	close(s.tasks)
+}
+
+func (s *Store) Shutdown(ctx context.Context) error {
+	s.Stop()
+	select {
+	case <-s.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

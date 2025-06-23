@@ -34,7 +34,7 @@ func setupStore(bufferSize int) (*Store, func()) {
 
 	// Return cleanup function
 	cleanup := func() {
-		store.Close()
+		store.Stop()
 	}
 
 	return store, cleanup
@@ -958,7 +958,7 @@ func benchmarkBatchWithMaxTaskBatchSize(b *testing.B, maxTaskBatchSize int) {
 	go store.Run()
 
 	cleanup := func() {
-		store.Close()
+		store.Stop()
 	}
 	defer cleanup()
 

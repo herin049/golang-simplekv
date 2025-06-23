@@ -1,39 +1,60 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"go.uber.org/zap"
-	store "lukas/simplekv/internal/store"
-	"strconv"
+	"lukas/simplekv/internal/store"
+	"net"
+	"time"
 )
 
 func main() {
 	logger, _ := zap.NewDevelopment()
-	kvStore := store.NewStore(logger, store.StoreOptions{
+	logger.Debug("starting test")
+	server := store.NewServer(logger, store.ServerConfig{
+		Addr:           "",
+		Port:           8080,
+		MaxConnections: 1024,
+	}, store.StoreOptions{
 		TaskBufferDepth:  1024,
 		MaxTaskBatchSize: 16,
+	}, store.ConnectionConfig{
+		ReadTimeout:              time.Second * 15,
+		WriteTimeout:             time.Second * 15,
+		MaxFrameSize:             4096,
+		CommandBufferDepth:       1024,
+		ClientMessageBufferDepth: 1024,
+		ServerMessageBufferDepth: 1024,
+		ReadBufferSize:           4096,
+		WriteBufferSize:          4096,
 	})
-	go kvStore.Run()
-	for i := 0; i < 10000; i++ {
-		commands := make([]store.Command, 0, 16)
-		for j := 0; j < 16; j++ {
-			var command store.Command = store.SetCommand{
-				Key:   strconv.Itoa(i),
-				Value: strconv.Itoa(i),
-			}
-			commands = append(commands, command)
+	server.Start()
+	conn, err := net.Dial("tcp", "localhost:8080")
+	if err != nil {
+		logger.Debug("error connecting to server", zap.Error(err))
+		panic(err)
+	} else {
+		logger.Debug("connected to server")
+	}
+	client := store.NewClient(conn, logger)
+	for i := 0; i < 1000000; i++ {
+		testStr := fmt.Sprintf("test%d", i)
+		_, setErr := client.ExecuteCommand(store.SetCommand{Key: testStr, Value: testStr})
+		if setErr != nil {
+			logger.Debug("error setting value", zap.Error(setErr))
 		}
-		kvStore.SubmitBatch(commands)
 	}
 
-	for i := 0; i < 10000; i++ {
-		var command store.Command = store.GetCommand{
-			Key: strconv.Itoa(i),
-		}
-		result, err := kvStore.Execute(command)
-		if err != nil {
-			logger.Error("error executing command", zap.Error(err))
-		} else {
-			logger.Info("command result", zap.Any("result", result))
+	for i := 0; i < 1000000; i++ {
+		testStr := fmt.Sprintf("test%d", i)
+		getResult, getErr := client.ExecuteCommand(store.GetCommand{Key: testStr})
+		if getErr != nil {
+			logger.Debug("error getting value", zap.Error(getErr))
+		} else if i%100000 == 0 {
+			logger.Debug("got value", zap.Any("value", getResult))
 		}
 	}
+	conn.Close()
+	server.Shutdown(context.Background())
 }
