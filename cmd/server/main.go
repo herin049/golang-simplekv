@@ -43,6 +43,8 @@ func main() {
 		_, setErr := client.ExecuteCommand(store.SetCommand{Key: testStr, Value: testStr})
 		if setErr != nil {
 			logger.Debug("error setting value", zap.Error(setErr))
+		} else if i%100000 == 0 {
+			logger.Debug("set value")
 		}
 	}
 
