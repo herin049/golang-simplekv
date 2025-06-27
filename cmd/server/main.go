@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"go.uber.org/zap"
 	"lukas/simplekv/internal/store"
-	"net"
 	"time"
 )
 
@@ -23,40 +21,47 @@ func main() {
 		ReadTimeout:              time.Second * 15,
 		WriteTimeout:             time.Second * 15,
 		MaxFrameSize:             4096,
-		CommandBufferDepth:       1024,
-		ClientMessageBufferDepth: 1024,
-		ServerMessageBufferDepth: 1024,
-		ReadBufferSize:           4096,
-		WriteBufferSize:          4096,
+		CommandBufferDepth:       256,
+		ClientMessageBufferDepth: 256,
+		ServerMessageBufferDepth: 256,
+		ReadBufferSize:           1024 * 64,
+		WriteBufferSize:          1024 * 64,
 	})
 	server.Start()
-	conn, err := net.Dial("tcp", "localhost:8080")
+	client := store.NewClient(logger, store.ClientConfig{
+		ServerAddr:               "localhost",
+		ServerPort:               8080,
+		ReadBufferSize:           1024 * 64,
+		WriteBufferSize:          1024 * 64,
+		ClientMessageBufferDepth: 128,
+		ServerMessageBufferDepth: 128,
+		WriteTimeout:             time.Second * 15,
+		ReadTimeout:              time.Second * 15,
+		CommandRequestTimeout:    time.Second * 30,
+		ConnectTimeout:           time.Second * 30,
+	})
+	err := client.Connect()
 	if err != nil {
-		logger.Debug("error connecting to server", zap.Error(err))
+		logger.Debug("failed to connect to server", zap.Error(err))
 		panic(err)
-	} else {
-		logger.Debug("connected to server")
 	}
-	client := store.NewClient(conn, logger)
-	for i := 0; i < 1000000; i++ {
-		testStr := fmt.Sprintf("test%d", i)
-		_, setErr := client.ExecuteCommand(store.SetCommand{Key: testStr, Value: testStr})
-		if setErr != nil {
-			logger.Debug("error setting value", zap.Error(setErr))
-		} else if i%100000 == 0 {
-			logger.Debug("set value")
-		}
+	logger.Debug("successfully connected to server")
+	numCommands := 100
+	commandBatch := make([]store.Command, 0, numCommands)
+	for i := 0; i < numCommands; i++ {
+		commandBatch = append(commandBatch, store.SetCommand{Key: "test", Value: "test"})
+	}
+	for i := 0; i < 100000; i++ {
+		client.SubmitCommandBatch(commandBatch)
+	}
+	logger.Debug("executed set commands")
+	getResult, getErr := client.SubmitCommand(store.GetCommand{Key: "test"}).Get()
+	if getErr != nil {
+		logger.Debug("error getting value", zap.Error(getErr))
+	} else {
+		logger.Debug("got value", zap.Any("value", getResult))
 	}
 
-	for i := 0; i < 1000000; i++ {
-		testStr := fmt.Sprintf("test%d", i)
-		getResult, getErr := client.ExecuteCommand(store.GetCommand{Key: testStr})
-		if getErr != nil {
-			logger.Debug("error getting value", zap.Error(getErr))
-		} else if i%100000 == 0 {
-			logger.Debug("got value", zap.Any("value", getResult))
-		}
-	}
-	conn.Close()
+	client.Shutdown()
 	server.Shutdown(context.Background())
 }

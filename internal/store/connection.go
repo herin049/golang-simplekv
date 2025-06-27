@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -17,8 +16,6 @@ type CommandRequest struct {
 	ResultFuture *Future[CommandResult]
 }
 
-type ClientMessageBatch []ClientMessage
-type ServerMessageBatch []ServerMessage
 type CommandRequestBatch []CommandRequest
 
 type ConnectionConfig struct {
@@ -28,8 +25,8 @@ type ConnectionConfig struct {
 	CommandBufferDepth       uint32
 	ClientMessageBufferDepth uint32
 	ServerMessageBufferDepth uint32
-	ReadBufferSize           uint32
-	WriteBufferSize          uint32
+	ReadBufferSize           int
+	WriteBufferSize          int
 }
 
 type ConnectionClosedCb func(*Connection)
@@ -52,22 +49,13 @@ type Connection struct {
 }
 
 func NewConnection(conn net.Conn, store *Store, logger *zap.Logger, config ConnectionConfig, closedCb ConnectionClosedCb) *Connection {
-	var reader FrameReader = &ConnFrameReader{
-		conn:         conn,
-		reader:       bufio.NewReaderSize(conn, int(config.ReadBufferSize)),
-		maxFrameSize: config.MaxFrameSize,
-	}
-	var writer FrameWriter = &ConnFrameWriter{
-		conn:   conn,
-		writer: bufio.NewWriterSize(conn, int(config.WriteBufferSize)),
-	}
 	return &Connection{
 		conn:            conn,
 		store:           store,
 		logger:          logger,
 		config:          config,
-		reader:          reader,
-		writer:          writer,
+		reader:          NewBufferedFrameReader(conn, config.ReadBufferSize),
+		writer:          NewBufferedFrameWriter(conn, config.WriteBufferSize),
 		clientCodec:     &PbClientMessageCodec{},
 		serverCodec:     &PbServerMessageCodec{},
 		pendingCommands: make(chan CommandRequestBatch, config.CommandBufferDepth),
@@ -166,7 +154,8 @@ func (conn *Connection) processPendingCommands() {
 	defer close(conn.serverMessages)
 	for pendingCommandBatch := range conn.pendingCommands {
 		commandResultMessages := make([]ServerMessage, 0, len(pendingCommandBatch))
-		for _, commandReq := range pendingCommandBatch {
+		for i := len(pendingCommandBatch) - 1; i >= 0; i-- {
+			commandReq := pendingCommandBatch[i]
 			result, err := commandReq.ResultFuture.Get()
 			errorCode, errorMessage := uint32(0), ""
 			var storeErr StoreError

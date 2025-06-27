@@ -42,7 +42,7 @@ func ExampleUsage() {
 	defer conn.Close()
 
 	// Create frame connection with custom buffer sizes
-	frameConn := store.NewFrameConn(conn, 8192, 4096) // 8KB read buffer, 4KB write buffer
+	frameConn := store.NewBufferedFrameIo(conn, 8192, 4096) // 8KB read buffer, 4KB write buffer
 
 	// Example 1: Send multiple frames at once
 	testFrames := []store.Frame{
@@ -87,11 +87,11 @@ func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	// Create separate reader and writer for more control
-	reader := store.NewConnFrameReader(conn, 64000) // 16KB read buffer
-	writer := store.NewConnFrameWriter(conn, 8192)  // 8KB write buffer
+	reader := store.NewBufferedFrameReader(conn, 64000) // 16KB read buffer
+	writer := store.NewBufferedFrameWriter(conn, 8192)  // 8KB write buffer
 
-	// Or use the combined FrameConn
-	// frameConn := NewFrameConn(conn, 16384, 8192)
+	// Or use the combined BufferedFrameReadWriter
+	// frameConn := NewBufferedFrameIo(conn, 16384, 8192)
 
 	fmt.Println("New connection established")
 
@@ -151,7 +151,7 @@ func AdvancedUsageExample() {
 	}
 	defer conn.Close()
 
-	frameConn := store.NewFrameConn(conn, 8192, 4096)
+	frameConn := store.NewBufferedFrameIo(conn, 8192, 4096)
 
 	// Pattern 1: High-throughput batch processing
 	batchSize := 100

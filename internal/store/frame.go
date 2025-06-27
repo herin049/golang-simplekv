@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"net"
 )
 
 type Frame struct {
@@ -30,6 +29,11 @@ type FrameWriter interface {
 	WriteFrames(frames []Frame) error
 }
 
+type FrameReadWriter interface {
+	FrameReader
+	FrameWriter
+}
+
 type FrameWriterError struct {
 	Message string
 }
@@ -38,21 +42,19 @@ func (e FrameWriterError) Error() string {
 	return e.Message
 }
 
-type ConnFrameReader struct {
-	conn         net.Conn
+type BufferedFrameReader struct {
 	reader       *bufio.Reader
 	maxFrameSize uint32
 }
 
-func NewConnFrameReader(conn net.Conn, bufferSize int) *ConnFrameReader {
-	return &ConnFrameReader{
-		conn:         conn,
-		reader:       bufio.NewReaderSize(conn, bufferSize),
+func NewBufferedFrameReader(reader io.Reader, bufferSize int) *BufferedFrameReader {
+	return &BufferedFrameReader{
+		reader:       bufio.NewReaderSize(reader, bufferSize),
 		maxFrameSize: 1024 * 1024,
 	}
 }
 
-func (cfr *ConnFrameReader) ReadFrame() (Frame, error) {
+func (cfr *BufferedFrameReader) ReadFrame() (Frame, error) {
 	// Read the frame length (4 bytes, big endian)
 	lengthBytes := make([]byte, 4)
 	_, err := io.ReadFull(cfr.reader, lengthBytes)
@@ -77,7 +79,7 @@ func (cfr *ConnFrameReader) ReadFrame() (Frame, error) {
 }
 
 // ReadFrames reads one frame (blocking), then reads all available frames without blocking
-func (cfr *ConnFrameReader) ReadFrames() ([]Frame, error) {
+func (cfr *BufferedFrameReader) ReadFrames() ([]Frame, error) {
 	frames := make([]Frame, 0)
 
 	// First, read at least one frame (blocking)
@@ -119,27 +121,20 @@ func (cfr *ConnFrameReader) ReadFrames() ([]Frame, error) {
 	return frames, nil
 }
 
-// Close closes the underlying connection
-func (cfr *ConnFrameReader) Close() error {
-	return cfr.conn.Close()
-}
-
-// ConnFrameWriter implements FrameWriter using a buffered TCP connection
-type ConnFrameWriter struct {
-	conn   net.Conn
+// BufferedFrameWriter implements FrameWriter using a buffered TCP connection
+type BufferedFrameWriter struct {
 	writer *bufio.Writer
 }
 
-// NewConnFrameWriter creates a new ConnFrameWriter with specified buffer size
-func NewConnFrameWriter(conn net.Conn, bufferSize int) *ConnFrameWriter {
-	return &ConnFrameWriter{
-		conn:   conn,
-		writer: bufio.NewWriterSize(conn, bufferSize),
+// NewBufferedFrameWriter creates a new BufferedFrameWriter with specified buffer size
+func NewBufferedFrameWriter(writer io.Writer, bufferSize int) *BufferedFrameWriter {
+	return &BufferedFrameWriter{
+		writer: bufio.NewWriterSize(writer, bufferSize),
 	}
 }
 
 // WriteFrame writes a single frame to the connection
-func (tfw *ConnFrameWriter) WriteFrame(frame Frame) error {
+func (tfw *BufferedFrameWriter) WriteFrame(frame Frame) error {
 	// Write frame length (4 bytes, big endian)
 	lengthBytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(lengthBytes, uint32(len(frame.Data)))
@@ -160,7 +155,7 @@ func (tfw *ConnFrameWriter) WriteFrame(frame Frame) error {
 }
 
 // WriteFrames writes multiple frames to the connection
-func (tfw *ConnFrameWriter) WriteFrames(frames []Frame) error {
+func (tfw *BufferedFrameWriter) WriteFrames(frames []Frame) error {
 	for _, frame := range frames {
 		// Write frame length
 		lengthBytes := make([]byte, 4)
@@ -182,57 +177,45 @@ func (tfw *ConnFrameWriter) WriteFrames(frames []Frame) error {
 	return tfw.writer.Flush()
 }
 
-// Close closes the underlying connection
-func (tfw *ConnFrameWriter) Close() error {
-	return tfw.conn.Close()
+type BufferedFrameReadWriter struct {
+	reader *BufferedFrameReader
+	writer *BufferedFrameWriter
 }
 
-type FrameConn struct {
-	conn   net.Conn
-	reader *ConnFrameReader
-	writer *ConnFrameWriter
-}
-
-// NewFrameConn creates a new FrameConn with specified buffer sizes for reading and writing
-func NewFrameConn(conn net.Conn, readBufferSize, writeBufferSize int) *FrameConn {
-	return &FrameConn{
-		conn:   conn,
-		reader: NewConnFrameReader(conn, readBufferSize),
-		writer: NewConnFrameWriter(conn, writeBufferSize),
+// NewBufferedFrameIo creates a new BufferedFrameReadWriter with specified buffer sizes for reading and writing
+func NewBufferedFrameIo(rw io.ReadWriter, readBufferSize, writeBufferSize int) *BufferedFrameReadWriter {
+	return &BufferedFrameReadWriter{
+		reader: NewBufferedFrameReader(rw, readBufferSize),
+		writer: NewBufferedFrameWriter(rw, writeBufferSize),
 	}
 }
 
 // Reader returns the underlying FrameReader
-func (fc *FrameConn) Reader() FrameReader {
+func (fc *BufferedFrameReadWriter) Reader() FrameReader {
 	return fc.reader
 }
 
 // Writer returns the underlying FrameWriter
-func (fc *FrameConn) Writer() FrameWriter {
+func (fc *BufferedFrameReadWriter) Writer() FrameWriter {
 	return fc.writer
 }
 
 // ReadFrame delegates to the reader
-func (fc *FrameConn) ReadFrame() (Frame, error) {
+func (fc *BufferedFrameReadWriter) ReadFrame() (Frame, error) {
 	return fc.reader.ReadFrame()
 }
 
 // ReadFrames delegates to the reader
-func (fc *FrameConn) ReadFrames() ([]Frame, error) {
+func (fc *BufferedFrameReadWriter) ReadFrames() ([]Frame, error) {
 	return fc.reader.ReadFrames()
 }
 
 // WriteFrame delegates to the writer
-func (fc *FrameConn) WriteFrame(frame Frame) error {
+func (fc *BufferedFrameReadWriter) WriteFrame(frame Frame) error {
 	return fc.writer.WriteFrame(frame)
 }
 
 // WriteFrames delegates to the writer
-func (fc *FrameConn) WriteFrames(frames []Frame) error {
+func (fc *BufferedFrameReadWriter) WriteFrames(frames []Frame) error {
 	return fc.writer.WriteFrames(frames)
-}
-
-// Close closes the underlying connection
-func (fc *FrameConn) Close() error {
-	return fc.conn.Close()
 }

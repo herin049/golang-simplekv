@@ -8,6 +8,9 @@ type ServerMessage interface {
 	isServerMessage() bool
 }
 
+type ClientMessageBatch []ClientMessage
+type ServerMessageBatch []ServerMessage
+
 type CommandRequestMessage struct {
 	RequestId uint64
 	Command   Command
