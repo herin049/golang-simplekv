@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"go.uber.org/zap"
+	"lukas/simplekv/internal/future"
 )
 
 var KeyNotFoundError = StoreError{1, "key not found"}
@@ -24,7 +25,7 @@ type StoreOptions struct {
 
 type StoreTask struct {
 	command Command
-	future  *Future[CommandResult]
+	future  *future.Future[CommandResult]
 }
 
 type StoreTaskBatch []StoreTask
@@ -81,17 +82,17 @@ func (s *Store) executeCommand(command Command) (CommandResult, error) {
 	}
 }
 
-func (s *Store) Submit(command Command) *Future[CommandResult] {
-	resultFuture := NewFuture[CommandResult]()
+func (s *Store) Submit(command Command) *future.Future[CommandResult] {
+	resultFuture := future.NewFuture[CommandResult]()
 	s.tasks <- StoreTaskBatch{StoreTask{command: command, future: resultFuture}}
 	return resultFuture
 }
 
-func (s *Store) SubmitBatch(commands []Command) []*Future[CommandResult] {
-	resultFutures := make([]*Future[CommandResult], 0, len(commands))
+func (s *Store) SubmitBatch(commands []Command) []*future.Future[CommandResult] {
+	resultFutures := make([]*future.Future[CommandResult], 0, len(commands))
 	taskBatch := StoreTaskBatch(make([]StoreTask, 0, len(commands)))
 	for i := 0; i < len(commands); i++ {
-		resultFuture := NewFuture[CommandResult]()
+		resultFuture := future.NewFuture[CommandResult]()
 		resultFutures = append(resultFutures, resultFuture)
 		taskBatch = append(taskBatch, StoreTask{command: commands[i], future: resultFuture})
 	}

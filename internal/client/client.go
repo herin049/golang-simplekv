@@ -1,4 +1,4 @@
-package store
+package client
 
 import (
 	"context"
@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"go.uber.org/zap"
 	"io"
+	"lukas/simplekv/internal/future"
+	"lukas/simplekv/internal/msg"
+	"lukas/simplekv/internal/store"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -30,8 +33,8 @@ func (e CommandError) Error() string {
 
 type ClientRequest struct {
 	RequestId      uint64
-	RequestMessage ClientMessage
-	ResultFuture   *Future[any]
+	RequestMessage msg.ClientMessage
+	ResultFuture   *future.Future[any]
 }
 
 type ClientConfig struct {
@@ -64,12 +67,12 @@ type Client struct {
 	nextRequestId         atomic.Uint64
 	pendingCommands       map[uint64]PendingCommand
 	pendingCommandsLock   sync.Mutex
-	clientMessagesChannel chan ClientMessageBatch
-	serverMessagesChannel chan ServerMessageBatch
-	reader                FrameReader
-	writer                FrameWriter
-	clientCodec           ClientMessageCodec
-	serverCodec           ServerMessageCodec
+	clientMessagesChannel chan msg.ClientMessageBatch
+	serverMessagesChannel chan msg.ServerMessageBatch
+	reader                msg.FrameReader
+	writer                msg.FrameWriter
+	clientCodec           msg.ClientMessageCodec
+	serverCodec           msg.ServerMessageCodec
 	ctx                   context.Context
 	cancel                context.CancelFunc
 	wg                    sync.WaitGroup
@@ -84,12 +87,12 @@ func NewClient(logger *zap.Logger, config ClientConfig) *Client {
 		nextRequestId:         atomic.Uint64{},
 		pendingCommands:       make(map[uint64]PendingCommand),
 		pendingCommandsLock:   sync.Mutex{},
-		clientMessagesChannel: make(chan ClientMessageBatch, config.ClientMessageBufferDepth),
-		serverMessagesChannel: make(chan ServerMessageBatch, config.ServerMessageBufferDepth),
+		clientMessagesChannel: make(chan msg.ClientMessageBatch, config.ClientMessageBufferDepth),
+		serverMessagesChannel: make(chan msg.ServerMessageBatch, config.ServerMessageBufferDepth),
 		reader:                nil,
 		writer:                nil,
-		clientCodec:           &PbClientMessageCodec{},
-		serverCodec:           &PbServerMessageCodec{},
+		clientCodec:           &msg.PbClientMessageCodec{},
+		serverCodec:           &msg.PbServerMessageCodec{},
 		ctx:                   ctx,
 		cancel:                cancel,
 		wg:                    sync.WaitGroup{},
@@ -97,7 +100,7 @@ func NewClient(logger *zap.Logger, config ClientConfig) *Client {
 }
 
 type PendingCommand struct {
-	future  *Future[CommandResult]
+	future  *future.Future[store.CommandResult]
 	timeout time.Time
 }
 
@@ -115,8 +118,8 @@ func (c *Client) Connect() error {
 	}
 	c.logger.Info("connected to server", zap.String("address", serverAddr))
 
-	c.reader = NewBufferedFrameReader(c.conn, c.config.ReadBufferSize)
-	c.writer = NewBufferedFrameWriter(c.conn, c.config.WriteBufferSize)
+	c.reader = msg.NewBufferedFrameReader(c.conn, c.config.ReadBufferSize)
+	c.writer = msg.NewBufferedFrameWriter(c.conn, c.config.WriteBufferSize)
 
 	c.wg.Add(4)
 	go c.sendMessages()
@@ -136,17 +139,17 @@ func (c *Client) Shutdown() {
 	c.wg.Wait()
 }
 
-func (c *Client) SubmitCommand(command Command) *Future[CommandResult] {
-	return c.submitCommandMessage(CommandRequestMessage{
+func (c *Client) SubmitCommand(command store.Command) *future.Future[store.CommandResult] {
+	return c.submitCommandMessage(msg.CommandRequestMessage{
 		RequestId: c.nextRequestId.Add(1),
 		Command:   command,
 	})
 }
 
-func (c *Client) SubmitCommandBatch(commands []Command) []*Future[CommandResult] {
-	commandRequests := make([]CommandRequestMessage, 0, len(commands))
+func (c *Client) SubmitCommandBatch(commands []store.Command) []*future.Future[store.CommandResult] {
+	commandRequests := make([]msg.CommandRequestMessage, 0, len(commands))
 	for _, command := range commands {
-		commandRequests = append(commandRequests, CommandRequestMessage{
+		commandRequests = append(commandRequests, msg.CommandRequestMessage{
 			RequestId: c.nextRequestId.Add(1),
 			Command:   command,
 		})
@@ -154,24 +157,24 @@ func (c *Client) SubmitCommandBatch(commands []Command) []*Future[CommandResult]
 	return c.submitCommandMessageBatch(commandRequests)
 }
 
-func (c *Client) submitCommandMessage(commandMessage CommandRequestMessage) *Future[CommandResult] {
+func (c *Client) submitCommandMessage(commandMessage msg.CommandRequestMessage) *future.Future[store.CommandResult] {
 	pendingCommand := PendingCommand{
-		future:  NewFuture[CommandResult](),
+		future:  future.NewFuture[store.CommandResult](),
 		timeout: time.Now().Add(c.config.CommandRequestTimeout),
 	}
 	c.pendingCommandsLock.Lock()
 	c.pendingCommands[commandMessage.RequestId] = pendingCommand
 	c.pendingCommandsLock.Unlock()
-	c.clientMessagesChannel <- ClientMessageBatch{commandMessage}
+	c.clientMessagesChannel <- msg.ClientMessageBatch{commandMessage}
 	return pendingCommand.future
 }
 
-func (c *Client) submitCommandMessageBatch(commandMessages []CommandRequestMessage) []*Future[CommandResult] {
+func (c *Client) submitCommandMessageBatch(commandMessages []msg.CommandRequestMessage) []*future.Future[store.CommandResult] {
 	timeout := time.Now().Add(c.config.CommandRequestTimeout)
-	futures := make([]*Future[CommandResult], 0, len(commandMessages))
-	clientMessages := make(ClientMessageBatch, 0, len(commandMessages))
+	futures := make([]*future.Future[store.CommandResult], 0, len(commandMessages))
+	clientMessages := make(msg.ClientMessageBatch, 0, len(commandMessages))
 	for _, commandMessage := range commandMessages {
-		futures = append(futures, NewFuture[CommandResult]())
+		futures = append(futures, future.NewFuture[store.CommandResult]())
 		clientMessages = append(clientMessages, commandMessage)
 	}
 	c.pendingCommandsLock.Lock()
@@ -189,14 +192,14 @@ func (c *Client) submitCommandMessageBatch(commandMessages []CommandRequestMessa
 func (c *Client) sendMessages() {
 	defer c.wg.Done()
 	for clientMessageBatch := range c.clientMessagesChannel {
-		frameBatch := make([]Frame, 0, len(clientMessageBatch))
+		frameBatch := make([]msg.Frame, 0, len(clientMessageBatch))
 		for _, message := range clientMessageBatch {
 			data, err := c.clientCodec.Encode(message)
 			if err != nil {
 				c.logger.Error("encode error", zap.Error(err))
 				continue
 			}
-			frameBatch = append(frameBatch, Frame{Data: data})
+			frameBatch = append(frameBatch, msg.Frame{Data: data})
 		}
 		if len(frameBatch) == 0 {
 			continue
@@ -234,7 +237,7 @@ func (c *Client) receiveMessages() {
 			c.logger.Debug("error reading frames", zap.Error(err))
 			continue
 		}
-		messageBatch := make(ServerMessageBatch, 0, len(frames))
+		messageBatch := make(msg.ServerMessageBatch, 0, len(frames))
 		for _, frame := range frames {
 			message, decErr := c.serverCodec.Decode(frame.Data)
 			if decErr != nil {
@@ -254,18 +257,18 @@ func (c *Client) processMessages() {
 	defer c.wg.Done()
 	for serverMessageBatch := range c.serverMessagesChannel {
 		for _, message := range serverMessageBatch {
-			switch msg := message.(type) {
-			case CommandResultMessage:
+			switch messageValue := message.(type) {
+			case msg.CommandResultMessage:
 				var pendingCommand PendingCommand
 				c.pendingCommandsLock.Lock()
-				pendingCommand = c.pendingCommands[msg.RequestId]
-				delete(c.pendingCommands, msg.RequestId)
+				pendingCommand = c.pendingCommands[messageValue.RequestId]
+				delete(c.pendingCommands, messageValue.RequestId)
 				c.pendingCommandsLock.Unlock()
 				if pendingCommand.future != nil {
-					if msg.ErrorCode == 0 {
-						pendingCommand.future.Set(msg.CommandResult)
+					if messageValue.ErrorCode == 0 {
+						pendingCommand.future.Set(messageValue.CommandResult)
 					} else {
-						pendingCommand.future.SetErr(CommandError{msg.ErrorMessage})
+						pendingCommand.future.SetErr(CommandError{messageValue.ErrorMessage})
 					}
 				}
 			}
@@ -297,7 +300,7 @@ func (c *Client) commandTimeoutLoop() {
 
 func (c *Client) checkCommandTimeouts() {
 	now := time.Now()
-	var timedOutCommands []*Future[CommandResult]
+	var timedOutCommands []*future.Future[store.CommandResult]
 	c.pendingCommandsLock.Lock()
 	for requestId, pendingCommand := range c.pendingCommands {
 		if now.After(pendingCommand.timeout) {

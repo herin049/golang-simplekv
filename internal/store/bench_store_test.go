@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"lukas/simplekv/internal/future"
 	"math/rand"
 	"runtime"
 	"sync"
@@ -447,7 +448,7 @@ func BenchmarkAsyncSubmit(b *testing.B) {
 
 	b.ResetTimer()
 
-	results := make([]*Future[CommandResult], b.N)
+	results := make([]*future.Future[CommandResult], b.N)
 
 	// Submit all tasks
 	start := time.Now()
@@ -777,7 +778,7 @@ func benchmarkAsyncBatchSubmit(b *testing.B, batchSize int) {
 
 	b.ResetTimer()
 
-	allFutures := make([][]*Future[CommandResult], numBatches)
+	allFutures := make([][]*future.Future[CommandResult], numBatches)
 
 	// Submit all batches
 	start := time.Now()

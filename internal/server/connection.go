@@ -1,9 +1,12 @@
-package store
+package server
 
 import (
 	"context"
 	"errors"
 	"io"
+	"lukas/simplekv/internal/future"
+	"lukas/simplekv/internal/msg"
+	"lukas/simplekv/internal/store"
 	"net"
 	"sync/atomic"
 	"time"
@@ -13,7 +16,7 @@ import "go.uber.org/zap"
 
 type CommandRequest struct {
 	RequestId    uint64
-	ResultFuture *Future[CommandResult]
+	ResultFuture *future.Future[store.CommandResult]
 }
 
 type CommandRequestBatch []CommandRequest
@@ -33,34 +36,34 @@ type ConnectionClosedCb func(*Connection)
 
 type Connection struct {
 	conn            net.Conn
-	store           *Store
+	store           *store.Store
 	logger          *zap.Logger
 	config          ConnectionConfig
-	reader          FrameReader
-	writer          FrameWriter
-	clientCodec     ClientMessageCodec
-	serverCodec     ServerMessageCodec
+	reader          msg.FrameReader
+	writer          msg.FrameWriter
+	clientCodec     msg.ClientMessageCodec
+	serverCodec     msg.ServerMessageCodec
 	pendingCommands chan CommandRequestBatch
-	clientMessages  chan ClientMessageBatch
-	serverMessages  chan ServerMessageBatch
-	stopFlag        atomic.Bool
+	clientMessages  chan msg.ClientMessageBatch
+	serverMessages  chan msg.ServerMessageBatch
+	connClosed      atomic.Bool
 	done            chan struct{}
 	closedCb        ConnectionClosedCb
 }
 
-func NewConnection(conn net.Conn, store *Store, logger *zap.Logger, config ConnectionConfig, closedCb ConnectionClosedCb) *Connection {
+func NewConnection(conn net.Conn, store *store.Store, logger *zap.Logger, config ConnectionConfig, closedCb ConnectionClosedCb) *Connection {
 	return &Connection{
 		conn:            conn,
 		store:           store,
 		logger:          logger,
 		config:          config,
-		reader:          NewBufferedFrameReader(conn, config.ReadBufferSize),
-		writer:          NewBufferedFrameWriter(conn, config.WriteBufferSize),
-		clientCodec:     &PbClientMessageCodec{},
-		serverCodec:     &PbServerMessageCodec{},
+		reader:          msg.NewBufferedFrameReader(conn, config.ReadBufferSize),
+		writer:          msg.NewBufferedFrameWriter(conn, config.WriteBufferSize),
+		clientCodec:     &msg.PbClientMessageCodec{},
+		serverCodec:     &msg.PbServerMessageCodec{},
 		pendingCommands: make(chan CommandRequestBatch, config.CommandBufferDepth),
-		clientMessages:  make(chan ClientMessageBatch, config.ClientMessageBufferDepth),
-		serverMessages:  make(chan ServerMessageBatch, config.ServerMessageBufferDepth),
+		clientMessages:  make(chan msg.ClientMessageBatch, config.ClientMessageBufferDepth),
+		serverMessages:  make(chan msg.ServerMessageBatch, config.ServerMessageBufferDepth),
 		done:            make(chan struct{}),
 		closedCb:        closedCb,
 	}
@@ -74,7 +77,7 @@ func (conn *Connection) Handle() {
 }
 
 func (conn *Connection) Stop() {
-	conn.stopFlag.Store(true)
+	conn.closeConnection()
 }
 
 func (conn *Connection) Shutdown(ctx context.Context) error {
@@ -87,29 +90,35 @@ func (conn *Connection) Shutdown(ctx context.Context) error {
 	}
 }
 
+func (conn *Connection) closeConnection() {
+	if conn.connClosed.CompareAndSwap(false, true) {
+		err := conn.conn.Close()
+		if err != nil {
+			conn.logger.Error("error closing connection", zap.Error(err))
+		}
+	}
+}
+
 func (conn *Connection) receiveMessages() {
 	defer close(conn.clientMessages)
 	conn.logger.Debug("starting to receive messages", zap.String("addr", conn.conn.RemoteAddr().String()))
-	for !conn.stopFlag.Load() {
+	for {
 		if conn.config.ReadTimeout > 0 {
 			err := conn.conn.SetReadDeadline(time.Now().Add(conn.config.ReadTimeout))
 			if err != nil {
 				conn.logger.Debug("error setting read deadline", zap.Error(err))
-				conn.stopFlag.Store(true)
 				break
 			}
 		}
 		frames, err := conn.reader.ReadFrames()
 		if errors.Is(err, io.EOF) {
 			conn.logger.Debug("received EOF")
-			conn.stopFlag.Store(true)
 			break
 		} else if err != nil {
 			conn.logger.Debug("error reading frames", zap.Error(err))
-			conn.stopFlag.Store(true)
 			break
 		}
-		messageBatch := make(ClientMessageBatch, 0, len(frames))
+		messageBatch := make(msg.ClientMessageBatch, 0, len(frames))
 		for _, frame := range frames {
 			message, decErr := conn.clientCodec.Decode(frame.Data)
 			if decErr != nil {
@@ -127,11 +136,11 @@ func (conn *Connection) receiveMessages() {
 func (conn *Connection) processMessages() {
 	defer close(conn.pendingCommands)
 	for clientMessageBatch := range conn.clientMessages {
-		commandBatch := make([]Command, 0)
+		commandBatch := make([]store.Command, 0)
 		commandRequestIds := make([]uint64, 0)
 		for _, message := range clientMessageBatch {
 			switch msg := message.(type) {
-			case CommandRequestMessage:
+			case msg.CommandRequestMessage:
 				commandBatch = append(commandBatch, msg.Command)
 				commandRequestIds = append(commandRequestIds, msg.RequestId)
 			}
@@ -153,19 +162,19 @@ func (conn *Connection) processMessages() {
 func (conn *Connection) processPendingCommands() {
 	defer close(conn.serverMessages)
 	for pendingCommandBatch := range conn.pendingCommands {
-		commandResultMessages := make([]ServerMessage, 0, len(pendingCommandBatch))
+		commandResultMessages := make([]msg.ServerMessage, 0, len(pendingCommandBatch))
 		for i := len(pendingCommandBatch) - 1; i >= 0; i-- {
 			commandReq := pendingCommandBatch[i]
 			result, err := commandReq.ResultFuture.Get()
 			errorCode, errorMessage := uint32(0), ""
-			var storeErr StoreError
+			var storeErr store.StoreError
 			if errors.As(err, &storeErr) {
 				errorCode = storeErr.Code
 				errorMessage = storeErr.Message
 			} else if err != nil {
 				errorMessage = err.Error()
 			}
-			commandResultMessages = append(commandResultMessages, CommandResultMessage{
+			commandResultMessages = append(commandResultMessages, msg.CommandResultMessage{
 				RequestId:     commandReq.RequestId,
 				CommandResult: result,
 				ErrorCode:     errorCode,
@@ -180,14 +189,14 @@ func (conn *Connection) processPendingCommands() {
 
 func (conn *Connection) sendMessages() {
 	for serverMessageBatch := range conn.serverMessages {
-		frameBatch := make([]Frame, 0, len(serverMessageBatch))
+		frameBatch := make([]msg.Frame, 0, len(serverMessageBatch))
 		for _, message := range serverMessageBatch {
 			data, err := conn.serverCodec.Encode(message)
 			if err != nil {
 				conn.logger.Error("encode error", zap.Error(err))
 				continue
 			}
-			frameBatch = append(frameBatch, Frame{Data: data})
+			frameBatch = append(frameBatch, msg.Frame{Data: data})
 		}
 		if len(frameBatch) == 0 {
 			continue

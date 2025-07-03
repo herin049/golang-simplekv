@@ -1,9 +1,10 @@
-package store
+package server
 
 import (
 	"context"
 	"errors"
 	"go.uber.org/zap"
+	"lukas/simplekv/internal/store"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -16,21 +17,20 @@ type ConnectionManager interface {
 }
 
 type DefaultConnectionManager struct {
-	store          *Store
+	store          *store.Store
 	logger         *zap.Logger
 	listener       net.Listener
 	listenerClosed atomic.Bool
 	mutex          sync.Mutex
-	nextConnId     uint64
+	nextConnId     atomic.Uint64
 	activeConn     map[uint64]*Connection
 	maxConnections int
 	connConfig     ConnectionConfig
 	done           chan struct{}
-	stopFlag       atomic.Bool
 	connWg         sync.WaitGroup
 }
 
-func NewDefaultConnectionManager(store *Store, logger *zap.Logger, maxConnections int, connConfig ConnectionConfig) *DefaultConnectionManager {
+func NewDefaultConnectionManager(store *store.Store, logger *zap.Logger, maxConnections int, connConfig ConnectionConfig) *DefaultConnectionManager {
 	return &DefaultConnectionManager{
 		store:          store,
 		logger:         logger,
@@ -43,7 +43,6 @@ func NewDefaultConnectionManager(store *Store, logger *zap.Logger, maxConnection
 }
 
 func (m *DefaultConnectionManager) Stop() {
-	m.stopFlag.Store(true)
 	m.closeListener()
 }
 
@@ -72,17 +71,16 @@ func (m *DefaultConnectionManager) closeListener() {
 }
 
 func (m *DefaultConnectionManager) acceptConnections() {
-	for !m.stopFlag.Load() {
+	for {
 		conn, err := m.listener.Accept()
 		if errors.Is(err, net.ErrClosed) {
 			m.logger.Debug("listener closed")
 			break
 		} else if err != nil {
-			// TODO: Add error handling
 			m.logger.Error("error accepting connection", zap.Error(err))
 			continue
 		}
-		connId := atomic.AddUint64(&m.nextConnId, 1)
+		connId := m.nextConnId.Add(1)
 		m.logger.Debug("accepting new connection", zap.Uint64("connId", connId), zap.String("addr", conn.RemoteAddr().String()))
 		m.addConnection(conn, connId)
 	}
@@ -96,14 +94,6 @@ func (m *DefaultConnectionManager) acceptConnections() {
 	close(m.done)
 }
 
-func (m *DefaultConnectionManager) closeConn(conn net.Conn, connId uint64) {
-	m.logger.Debug("closing connection", zap.Uint64("connId", connId), zap.String("addr", conn.RemoteAddr().String()))
-	err := conn.Close()
-	if err != nil {
-		m.logger.Error("error closing connection", zap.Error(err))
-	}
-}
-
 func (m *DefaultConnectionManager) addConnection(conn net.Conn, connId uint64) bool {
 	newConn := NewConnection(conn, m.store, m.logger, m.connConfig, func(connection *Connection) {
 		m.removeConnection(connection, connId)
@@ -114,7 +104,7 @@ func (m *DefaultConnectionManager) addConnection(conn net.Conn, connId uint64) b
 		m.mutex.Unlock()
 		m.logger.Debug("maximum number of connections exceeded", zap.Int("maxConnections", m.maxConnections))
 		m.connWg.Done()
-		m.closeConn(conn, connId)
+		newConn.Stop()
 		return false
 	}
 	newConn.Handle()

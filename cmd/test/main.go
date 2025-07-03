@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"lukas/simplekv/internal/store"
+	net2 "lukas/simplekv/internal/msg"
 	"net"
 	"time"
 )
@@ -42,10 +42,10 @@ func ExampleUsage() {
 	defer conn.Close()
 
 	// Create frame connection with custom buffer sizes
-	frameConn := store.NewBufferedFrameIo(conn, 8192, 4096) // 8KB read buffer, 4KB write buffer
+	frameConn := net2.NewBufferedFrameIo(conn, 8192, 4096) // 8KB read buffer, 4KB write buffer
 
 	// Example 1: Send multiple frames at once
-	testFrames := []store.Frame{
+	testFrames := []net2.Frame{
 		{Data: []byte("Hello")},
 		{Data: []byte("World")},
 		{Data: []byte("Multiple frames test")},
@@ -59,7 +59,7 @@ func ExampleUsage() {
 	}
 
 	// Example 2: Send a single frame
-	err = frameConn.WriteFrame(store.Frame{Data: []byte("Single frame message")})
+	err = frameConn.WriteFrame(net2.Frame{Data: []byte("Single frame msg")})
 	if err != nil {
 		fmt.Printf("Error writing single frame: %v\n", err)
 		return
@@ -87,8 +87,8 @@ func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	// Create separate reader and writer for more control
-	reader := store.NewBufferedFrameReader(conn, 64000) // 16KB read buffer
-	writer := store.NewBufferedFrameWriter(conn, 8192)  // 8KB write buffer
+	reader := net2.NewBufferedFrameReader(conn, 64000) // 16KB read buffer
+	writer := net2.NewBufferedFrameWriter(conn, 8192)  // 8KB write buffer
 
 	// Or use the combined BufferedFrameReadWriter
 	// frameConn := NewBufferedFrameIo(conn, 16384, 8192)
@@ -151,14 +151,14 @@ func AdvancedUsageExample() {
 	}
 	defer conn.Close()
 
-	frameConn := store.NewBufferedFrameIo(conn, 8192, 4096)
+	frameConn := net2.NewBufferedFrameIo(conn, 8192, 4096)
 
 	// Pattern 1: High-throughput batch processing
 	batchSize := 100
 	//frames := make([]store.Frame, batchSize)
 	for i := 0; i < batchSize; i++ {
 		fmt.Printf("Sending frame %d\n", i)
-		frame := store.Frame{Data: []byte(fmt.Sprintf("Batch message %d", i))}
+		frame := net2.Frame{Data: []byte(fmt.Sprintf("Batch msg %d", i))}
 		err := frameConn.WriteFrame(frame)
 		if err != nil {
 			fmt.Printf("Error writing frames: %v\n", err)
@@ -174,7 +174,7 @@ func AdvancedUsageExample() {
 	//}
 
 	// Pattern 2: Request-response pattern
-	request := store.Frame{Data: []byte("PING")}
+	request := net2.Frame{Data: []byte("PING")}
 	err = frameConn.WriteFrame(request)
 	if err != nil {
 		fmt.Printf("Request write error: %v\n", err)
@@ -190,7 +190,7 @@ func AdvancedUsageExample() {
 
 	// Pattern 3: Streaming with flow control
 	for i := 0; i < 10; i++ {
-		frame := store.Frame{Data: []byte(fmt.Sprintf("Stream message %d", i))}
+		frame := net2.Frame{Data: []byte(fmt.Sprintf("Stream msg %d", i))}
 		err = frameConn.WriteFrame(frame)
 		if err != nil {
 			break

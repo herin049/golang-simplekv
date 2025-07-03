@@ -1,4 +1,8 @@
-package store
+package msg
+
+import (
+	"lukas/simplekv/internal/store"
+)
 
 type ClientMessage interface {
 	isClientMessage() bool
@@ -13,7 +17,7 @@ type ServerMessageBatch []ServerMessage
 
 type CommandRequestMessage struct {
 	RequestId uint64
-	Command   Command
+	Command   store.Command
 }
 
 func (c CommandRequestMessage) isClientMessage() bool {
@@ -22,7 +26,7 @@ func (c CommandRequestMessage) isClientMessage() bool {
 
 type CommandResultMessage struct {
 	RequestId     uint64
-	CommandResult CommandResult
+	CommandResult store.CommandResult
 	ErrorCode     uint32
 	ErrorMessage  string
 }

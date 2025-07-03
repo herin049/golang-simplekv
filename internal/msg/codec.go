@@ -1,9 +1,10 @@
-package store
+package msg
 
 import (
 	"fmt"
 	"google.golang.org/protobuf/proto"
 	"lukas/simplekv/internal/pb"
+	"lukas/simplekv/internal/store"
 )
 
 type ClientMessageCodec interface {
@@ -45,20 +46,20 @@ func (*PbClientMessageCodec) toProtoCommandRequest(commandRequest CommandRequest
 	}
 
 	switch cmd := commandRequest.Command.(type) {
-	case SetCommand:
+	case store.SetCommand:
 		pbCmdReqMsg.Command = &pb.CommandRequestMessage_SetCommand{
 			SetCommand: &pb.SetCommand{
 				Key:   cmd.Key,
 				Value: cmd.Value,
 			},
 		}
-	case GetCommand:
+	case store.GetCommand:
 		pbCmdReqMsg.Command = &pb.CommandRequestMessage_GetCommand{
 			GetCommand: &pb.GetCommand{
 				Key: cmd.Key,
 			},
 		}
-	case DelCommand:
+	case store.DelCommand:
 		pbCmdReqMsg.Command = &pb.CommandRequestMessage_DelCommand{
 			DelCommand: &pb.DelCommand{
 				Key: cmd.Key,
@@ -93,20 +94,20 @@ func (c *PbClientMessageCodec) Encode(message ClientMessage) ([]byte, error) {
 }
 
 func (*PbClientMessageCodec) fromProtoCommandRequest(pbCmdReqMsg *pb.CommandRequestMessage) (CommandRequestMessage, error) {
-	var cmd Command
+	var cmd store.Command
 
 	switch pbCmd := pbCmdReqMsg.Command.(type) {
 	case *pb.CommandRequestMessage_SetCommand:
-		cmd = SetCommand{
+		cmd = store.SetCommand{
 			Key:   pbCmd.SetCommand.Key,
 			Value: pbCmd.SetCommand.Value,
 		}
 	case *pb.CommandRequestMessage_GetCommand:
-		cmd = GetCommand{
+		cmd = store.GetCommand{
 			Key: pbCmd.GetCommand.Key,
 		}
 	case *pb.CommandRequestMessage_DelCommand:
-		cmd = DelCommand{
+		cmd = store.DelCommand{
 			Key: pbCmd.DelCommand.Key,
 		}
 	default:
@@ -122,7 +123,7 @@ func (*PbClientMessageCodec) fromProtoCommandRequest(pbCmdReqMsg *pb.CommandRequ
 func (c *PbClientMessageCodec) Decode(data []byte) (ClientMessage, error) {
 	pbMsg := &pb.ClientMessage{}
 	if err := proto.Unmarshal(data, pbMsg); err != nil {
-		return nil, ClientCodecError{Message: "failed to unmarshal client message: " + err.Error()}
+		return nil, ClientCodecError{Message: "failed to unmarshal client msg: " + err.Error()}
 	}
 
 	switch msg := pbMsg.Message.(type) {
@@ -151,17 +152,17 @@ func (*PbServerMessageCodec) toProtoCommandResult(commandResult CommandResultMes
 	}
 
 	switch result := commandResult.CommandResult.(type) {
-	case SetCommandResult:
+	case store.SetCommandResult:
 		pbCmdResultMsg.CommandResult = &pb.CommandResultMessage_SetCommandResult{
 			SetCommandResult: &pb.SetCommandResult{},
 		}
-	case GetCommandResult:
+	case store.GetCommandResult:
 		pbCmdResultMsg.CommandResult = &pb.CommandResultMessage_GetCommandResult{
 			GetCommandResult: &pb.GetCommandResult{
 				Value: result.Value,
 			},
 		}
-	case DelCommandResult:
+	case store.DelCommandResult:
 		pbCmdResultMsg.CommandResult = &pb.CommandResultMessage_DelCommandResult{
 			DelCommandResult: &pb.DelCommandResult{},
 		}
@@ -185,7 +186,7 @@ func (c *PbServerMessageCodec) Encode(message ServerMessage) ([]byte, error) {
 			return nil, err
 		}
 	default:
-		return nil, ServerCodecError{fmt.Sprintf("unknown server message type: %T", result)}
+		return nil, ServerCodecError{fmt.Sprintf("unknown server msg type: %T", result)}
 	}
 
 	return proto.Marshal(pbMsg)
@@ -198,16 +199,16 @@ func (*PbServerMessageCodec) fromProtoCommandResult(pbCmdResultMsg *pb.CommandRe
 		errorMessage = *pbCmdResultMsg.ErrorMessage
 	}
 
-	var cmdResult CommandResult
+	var cmdResult store.CommandResult
 	switch pbResult := pbCmdResultMsg.CommandResult.(type) {
 	case *pb.CommandResultMessage_SetCommandResult:
-		cmdResult = SetCommandResult{}
+		cmdResult = store.SetCommandResult{}
 	case *pb.CommandResultMessage_GetCommandResult:
-		cmdResult = GetCommandResult{
+		cmdResult = store.GetCommandResult{
 			Value: pbResult.GetCommandResult.Value,
 		}
 	case *pb.CommandResultMessage_DelCommandResult:
-		cmdResult = DelCommandResult{}
+		cmdResult = store.DelCommandResult{}
 	default:
 		cmdResult = nil
 		if errorCode == 0 {
@@ -226,7 +227,7 @@ func (*PbServerMessageCodec) fromProtoCommandResult(pbCmdResultMsg *pb.CommandRe
 func (c *PbServerMessageCodec) Decode(data []byte) (ServerMessage, error) {
 	pbMsg := &pb.ServerMessage{}
 	if err := proto.Unmarshal(data, pbMsg); err != nil {
-		return nil, ServerCodecError{Message: "failed to unmarshal server message: " + err.Error()}
+		return nil, ServerCodecError{Message: "failed to unmarshal server msg: " + err.Error()}
 	}
 
 	switch msg := pbMsg.Message.(type) {

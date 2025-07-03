@@ -1,8 +1,9 @@
-package store
+package msg
 
 import (
 	"bytes"
 	"errors"
+	"lukas/simplekv/internal/store"
 	"testing"
 )
 
@@ -16,20 +17,20 @@ const (
 )
 
 // Helper function to create test commands
-func createTestSetCommand() SetCommand {
-	return SetCommand{Key: testKey, Value: testValue}
+func createTestSetCommand() store.SetCommand {
+	return store.SetCommand{Key: testKey, Value: testValue}
 }
 
-func createTestGetCommand() GetCommand {
-	return GetCommand{Key: testKey}
+func createTestGetCommand() store.GetCommand {
+	return store.GetCommand{Key: testKey}
 }
 
-func createTestDelCommand() DelCommand {
-	return DelCommand{Key: testKey}
+func createTestDelCommand() store.DelCommand {
+	return store.DelCommand{Key: testKey}
 }
 
 // Helper function to create test command request messages
-func createTestCommandRequestMessage(cmd Command) CommandRequestMessage {
+func createTestCommandRequestMessage(cmd store.Command) CommandRequestMessage {
 	return CommandRequestMessage{
 		RequestId: testReqID,
 		Command:   cmd,
@@ -37,7 +38,7 @@ func createTestCommandRequestMessage(cmd Command) CommandRequestMessage {
 }
 
 // Helper function to create test command result messages
-func createTestCommandResultMessage(result CommandResult, errCode uint32, errMsg string) CommandResultMessage {
+func createTestCommandResultMessage(result store.CommandResult, errCode uint32, errMsg string) CommandResultMessage {
 	return CommandResultMessage{
 		RequestId:     testReqID,
 		CommandResult: result,
@@ -64,7 +65,7 @@ func TestPbClientMessageCodec_EncodeDecodeSetCommand(t *testing.T) {
 		t.Fatalf("Failed to decode SetCommand: %v", err)
 	}
 
-	// Verify decoded message
+	// Verify decoded msg
 	decodedReq, ok := decodedMsg.(CommandRequestMessage)
 	if !ok {
 		t.Fatalf("Expected CommandRequestMessage, got %T", decodedMsg)
@@ -74,7 +75,7 @@ func TestPbClientMessageCodec_EncodeDecodeSetCommand(t *testing.T) {
 		t.Errorf("Expected RequestId %d, got %d", testReqID, decodedReq.RequestId)
 	}
 
-	decodedSetCmd, ok := decodedReq.Command.(SetCommand)
+	decodedSetCmd, ok := decodedReq.Command.(store.SetCommand)
 	if !ok {
 		t.Fatalf("Expected SetCommand, got %T", decodedReq.Command)
 	}
@@ -105,7 +106,7 @@ func TestPbClientMessageCodec_EncodeDecodeGetCommand(t *testing.T) {
 	}
 
 	decodedReq := decodedMsg.(CommandRequestMessage)
-	decodedGetCmd := decodedReq.Command.(GetCommand)
+	decodedGetCmd := decodedReq.Command.(store.GetCommand)
 
 	if decodedGetCmd.Key != testKey {
 		t.Errorf("Expected Key %s, got %s", testKey, decodedGetCmd.Key)
@@ -129,39 +130,10 @@ func TestPbClientMessageCodec_EncodeDecodeDelCommand(t *testing.T) {
 	}
 
 	decodedReq := decodedMsg.(CommandRequestMessage)
-	decodedDelCmd := decodedReq.Command.(DelCommand)
+	decodedDelCmd := decodedReq.Command.(store.DelCommand)
 
 	if decodedDelCmd.Key != testKey {
 		t.Errorf("Expected Key %s, got %s", testKey, decodedDelCmd.Key)
-	}
-}
-
-type UnknownCommand struct{}
-
-func (UnknownCommand) isCommand() bool {
-	return true
-}
-
-func TestPbClientMessageCodec_EncodeUnknownCommand(t *testing.T) {
-	codec := NewPbClientMessageCodec()
-
-	unknownCmd := UnknownCommand{}
-	reqMsg := createTestCommandRequestMessage(unknownCmd)
-
-	// Should return error for unknown command
-	_, err := codec.Encode(reqMsg)
-	if err == nil {
-		t.Fatal("Expected error for unknown command type")
-	}
-
-	var clientErr ClientCodecError
-	ok := errors.As(err, &clientErr)
-	if !ok {
-		t.Fatalf("Expected ClientCodecError, got %T", err)
-	}
-
-	if !bytes.Contains([]byte(clientErr.Message), []byte("unknown client command type")) {
-		t.Errorf("Expected error message to contain 'unknown client command type', got: %s", clientErr.Message)
 	}
 }
 
@@ -182,14 +154,14 @@ func TestPbClientMessageCodec_DecodeInvalidData(t *testing.T) {
 	}
 
 	if !bytes.Contains([]byte(clientErr.Message), []byte("failed to unmarshal")) {
-		t.Errorf("Expected error message to contain 'failed to unmarshal', got: %s", clientErr.Message)
+		t.Errorf("Expected error msg to contain 'failed to unmarshal', got: %s", clientErr.Message)
 	}
 }
 
 // Unit Tests for Server Message Codec
 func TestPbServerMessageCodec_EncodeDecodeSetCommandResult(t *testing.T) {
 	codec := NewPbServerMessageCodec()
-	setResult := SetCommandResult{}
+	setResult := store.SetCommandResult{}
 	resultMsg := createTestCommandResultMessage(setResult, 0, "")
 
 	// Test round-trip encoding/decoding
@@ -208,7 +180,7 @@ func TestPbServerMessageCodec_EncodeDecodeSetCommandResult(t *testing.T) {
 		t.Errorf("Expected RequestId %d, got %d", testReqID, decodedResult.RequestId)
 	}
 
-	_, ok := decodedResult.CommandResult.(SetCommandResult)
+	_, ok := decodedResult.CommandResult.(store.SetCommandResult)
 	if !ok {
 		t.Fatalf("Expected SetCommandResult, got %T", decodedResult.CommandResult)
 	}
@@ -216,7 +188,7 @@ func TestPbServerMessageCodec_EncodeDecodeSetCommandResult(t *testing.T) {
 
 func TestPbServerMessageCodec_EncodeDecodeGetCommandResult(t *testing.T) {
 	codec := NewPbServerMessageCodec()
-	getResult := GetCommandResult{Value: testValue}
+	getResult := store.GetCommandResult{Value: testValue}
 	resultMsg := createTestCommandResultMessage(getResult, 0, "")
 
 	// Test round-trip encoding/decoding
@@ -231,7 +203,7 @@ func TestPbServerMessageCodec_EncodeDecodeGetCommandResult(t *testing.T) {
 	}
 
 	decodedResult := decodedMsg.(CommandResultMessage)
-	decodedGetResult := decodedResult.CommandResult.(GetCommandResult)
+	decodedGetResult := decodedResult.CommandResult.(store.GetCommandResult)
 
 	if decodedGetResult.Value != testValue {
 		t.Errorf("Expected Value %s, got %s", testValue, decodedGetResult.Value)
@@ -240,7 +212,7 @@ func TestPbServerMessageCodec_EncodeDecodeGetCommandResult(t *testing.T) {
 
 func TestPbServerMessageCodec_EncodeDecodeWithError(t *testing.T) {
 	codec := NewPbServerMessageCodec()
-	delResult := DelCommandResult{}
+	delResult := store.DelCommandResult{}
 	resultMsg := createTestCommandResultMessage(delResult, testErrCode, testErrMsg)
 
 	// Test round-trip encoding/decoding
@@ -318,7 +290,7 @@ func BenchmarkClientCodec_RoundTripSetCommand(b *testing.B) {
 
 func BenchmarkServerCodec_EncodeGetCommandResult(b *testing.B) {
 	codec := NewPbServerMessageCodec()
-	getResult := GetCommandResult{Value: testValue}
+	getResult := store.GetCommandResult{Value: testValue}
 	resultMsg := createTestCommandResultMessage(getResult, 0, "")
 
 	b.ResetTimer()
@@ -332,7 +304,7 @@ func BenchmarkServerCodec_EncodeGetCommandResult(b *testing.B) {
 
 func BenchmarkServerCodec_DecodeGetCommandResult(b *testing.B) {
 	codec := NewPbServerMessageCodec()
-	getResult := GetCommandResult{Value: testValue}
+	getResult := store.GetCommandResult{Value: testValue}
 	resultMsg := createTestCommandResultMessage(getResult, 0, "")
 
 	data, err := codec.Encode(resultMsg)
@@ -351,7 +323,7 @@ func BenchmarkServerCodec_DecodeGetCommandResult(b *testing.B) {
 
 func BenchmarkServerCodec_RoundTripGetCommandResult(b *testing.B) {
 	codec := NewPbServerMessageCodec()
-	getResult := GetCommandResult{Value: testValue}
+	getResult := store.GetCommandResult{Value: testValue}
 	resultMsg := createTestCommandResultMessage(getResult, 0, "")
 
 	b.ResetTimer()
@@ -373,7 +345,7 @@ func BenchmarkClientCodec_EncodeLargeSetCommand(b *testing.B) {
 
 	// Create a large value (1KB)
 	largeValue := string(make([]byte, 1024))
-	setCmd := SetCommand{Key: testKey, Value: largeValue}
+	setCmd := store.SetCommand{Key: testKey, Value: largeValue}
 	reqMsg := createTestCommandRequestMessage(setCmd)
 
 	b.ResetTimer()
@@ -390,7 +362,7 @@ func BenchmarkServerCodec_EncodeLargeGetCommandResult(b *testing.B) {
 
 	// Create a large value (1KB)
 	largeValue := string(make([]byte, 1024))
-	getResult := GetCommandResult{Value: largeValue}
+	getResult := store.GetCommandResult{Value: largeValue}
 	resultMsg := createTestCommandResultMessage(getResult, 0, "")
 
 	b.ResetTimer()

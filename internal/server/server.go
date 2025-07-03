@@ -1,9 +1,10 @@
-package store
+package server
 
 import (
 	"context"
 	"fmt"
 	"go.uber.org/zap"
+	"lukas/simplekv/internal/store"
 	"net"
 )
 
@@ -14,14 +15,14 @@ type ServerConfig struct {
 }
 
 type Server struct {
-	store             *Store
+	store             *store.Store
 	logger            *zap.Logger
 	connectionManager ConnectionManager
 	serverConfig      ServerConfig
 }
 
-func NewServer(logger *zap.Logger, serverConfig ServerConfig, storeOptions StoreOptions, connConfig ConnectionConfig) *Server {
-	store := NewStore(logger, storeOptions)
+func NewServer(logger *zap.Logger, serverConfig ServerConfig, storeOptions store.StoreOptions, connConfig ConnectionConfig) *Server {
+	store := store.NewStore(logger, storeOptions)
 	return &Server{
 		store:             store,
 		logger:            logger,
@@ -30,7 +31,7 @@ func NewServer(logger *zap.Logger, serverConfig ServerConfig, storeOptions Store
 	}
 }
 
-func (s *Server) Start() {
+func (s *Server) Start(daemon bool) {
 	listenerAddr := fmt.Sprintf("%s:%d", s.serverConfig.Addr, s.serverConfig.Port)
 	listener, err := net.Listen("tcp", listenerAddr)
 	if err != nil {
@@ -38,7 +39,11 @@ func (s *Server) Start() {
 		return
 	}
 	s.connectionManager.Start(listener)
-	go s.store.Run()
+	if daemon {
+		go s.store.Run()
+	} else {
+		s.store.Run()
+	}
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
