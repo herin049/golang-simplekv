@@ -4,7 +4,6 @@ import (
 	"go.uber.org/zap"
 	"lukas/simplekv/internal/client"
 	"lukas/simplekv/internal/store"
-	"runtime"
 	"sync"
 	"time"
 )
@@ -50,7 +49,6 @@ func runClient(logger *zap.Logger, wg *sync.WaitGroup) {
 }
 
 func main() {
-	runtime.GOMAXPROCS(4)
 	logger, _ := zap.NewDevelopment()
 	logger.Debug("starting test")
 	numClients := 4

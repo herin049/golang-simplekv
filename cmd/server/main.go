@@ -5,12 +5,10 @@ import (
 	"go.uber.org/zap"
 	"lukas/simplekv/internal/server"
 	"lukas/simplekv/internal/store"
-	"runtime"
 	"time"
 )
 
 func main() {
-	runtime.GOMAXPROCS(1)
 	logger, _ := zap.NewDevelopment()
 	logger.Debug("starting test")
 	s := server.NewServer(logger, server.ServerConfig{
@@ -30,7 +28,7 @@ func main() {
 		ReadBufferSize:           1024 * 256,
 		WriteBufferSize:          1024 * 256,
 	})
-	s.Start(false)
+	s.Start()
 	err := s.Shutdown(context.Background())
 	if err != nil {
 		logger.Error("failed to shutdown server", zap.Error(err))

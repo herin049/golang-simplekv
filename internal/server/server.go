@@ -31,7 +31,7 @@ func NewServer(logger *zap.Logger, serverConfig ServerConfig, storeOptions store
 	}
 }
 
-func (s *Server) Start(daemon bool) {
+func (s *Server) Start() {
 	listenerAddr := fmt.Sprintf("%s:%d", s.serverConfig.Addr, s.serverConfig.Port)
 	listener, err := net.Listen("tcp", listenerAddr)
 	if err != nil {
@@ -39,11 +39,7 @@ func (s *Server) Start(daemon bool) {
 		return
 	}
 	s.connectionManager.Start(listener)
-	if daemon {
-		go s.store.Run()
-	} else {
-		s.store.Run()
-	}
+	s.store.Run()
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
